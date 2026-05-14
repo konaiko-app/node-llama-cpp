@@ -1204,6 +1204,7 @@ export class LlamaContextSequence {
         this._contextTokens = contextTokens;
         this._nextTokenIndex = nPast;
         this._loadedTokenPredictions = [];
+        this._tokenMeter.useTokens(nPast, "input");
     }
 
     /**

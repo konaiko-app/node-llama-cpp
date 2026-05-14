@@ -3256,8 +3256,14 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
                 seq._internalSequenceId
             );
 
-            // Sync the sequence state to match what evalChunks loaded
+            // Sync the sequence state to match what evalChunks loaded.
+            // nPast includes KV slots for image embeddings which have no Token representation,
+            // so pad the context tokens array with a filler value to keep _contextTokens.length === nPast.
             const tokenized = this.llamaChat.model.tokenize(this.imagePromptText);
+            const fillerToken = (tokenized[0] ?? 0) as Token;
+            while (tokenized.length < nPast)
+                tokenized.push(fillerToken);
+
             seq._syncStateFromExternalEval(tokenized, nPast);
 
             // Nothing left to evaluate — evalChunks already loaded everything
