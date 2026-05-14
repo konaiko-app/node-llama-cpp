@@ -1,8 +1,8 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
 import {
     ChatModelFunctions, ChatModelResponse, ChatModelSegment, ChatWrapperCheckModelCompatibilityParams,
-    ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, isChatModelResponseFunctionCall,
-    isChatModelResponseSegment
+    ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, chatUserMessageTextToString,
+    isChatModelResponseFunctionCall, isChatModelResponseSegment
 } from "../types.js";
 import {LlamaText, SpecialToken, SpecialTokensText} from "../utils/LlamaText.js";
 import {GgufArchitectureType} from "../gguf/types/GgufMetadataTypes.js";
@@ -196,7 +196,7 @@ export class QwenChatWrapper extends ChatWrapper {
                 flush();
 
                 currentAggregateFocus = null;
-                userTexts.push(LlamaText(item.text));
+                userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
             } else if (item.type === "model") {
                 flush();
 

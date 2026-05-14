@@ -15,6 +15,7 @@ import {getReadablePath} from "../../cli/utils/getReadablePath.js";
 import {LlamaContextOptions} from "../LlamaContext/types.js";
 import {LlamaContext} from "../LlamaContext/LlamaContext.js";
 import {LlamaEmbeddingContext, LlamaEmbeddingContextOptions} from "../LlamaEmbeddingContext.js";
+import {LlamaMmproj, type LlamaMmprojOptions} from "../LlamaMmproj.js";
 import {GgufArchitectureType, GgufMetadata} from "../../gguf/types/GgufMetadataTypes.js";
 import {OverridesObject} from "../../utils/OverridesObject.js";
 import {maxRecentDetokenizerTokens} from "../../consts.js";
@@ -193,7 +194,19 @@ export type LlamaModelOptions = {
      * > Only use this for metadata values that are explicitly documented to be supported by `llama.cpp` to be overridden,
      * > and only in cases when this is crucial, as this is not guaranteed to always work as expected.
      */
-    metadataOverrides?: OverridesObject<GgufMetadata, number | bigint | boolean | string>
+    metadataOverrides?: OverridesObject<GgufMetadata, number | bigint | boolean | string>,
+
+    /**
+     * Path to a multimodal projector (mmproj) GGUF file for vision/audio support.
+     * When provided, the projector is loaded alongside the model and kept in memory
+     * for the lifetime of the model.
+     *
+     * The loaded projector is accessible via {@link LlamaModel.mmproj `model.mmproj`}.
+     */
+    mmprojPath?: string,
+
+    /** Options for the multimodal projector. Only relevant when `mmprojPath` is set. */
+    mmprojOptions?: LlamaMmprojOptions
 };
 
 const defaultUseMmap = "auto" as const satisfies NonNullable<LlamaModelOptions["useMmap"]>;
@@ -223,6 +236,8 @@ export class LlamaModel {
     /** @internal */ private readonly _defaultContextKvCacheValueType: GgmlType;
     /** @internal */ private readonly _flashAttentionSupported: boolean;
     /** @internal */ private readonly _loraAdapters = new Map<string, AddonModelLora>();
+    /** @internal */ private readonly _mtmdContexts = new Map<string, LlamaMmproj>();
+    /** @internal */ private _defaultMmproj: LlamaMmproj | null = null;
     /** @internal */ public _vramConsumptionMarking?: MemoryMarking;
     /** @internal */ public _ramConsumptionMarking?: MemoryMarking;
     /** @internal */ private _typeDescription?: ModelTypeDescription;
@@ -315,6 +330,13 @@ export class LlamaModel {
         );
 
         this._disposeAggregator.add(async () => {
+            // Dispose all mtmd contexts before the model
+            for (const mtmd of this._mtmdContexts.values()) {
+                if (!mtmd.disposed)
+                    await mtmd.dispose();
+            }
+            this._mtmdContexts.clear();
+
             await this._backendModelDisposeGuard.acquireDisposeLock();
             await this._model.dispose();
             this._vramConsumptionMarking?.dispose();
@@ -371,6 +393,15 @@ export class LlamaModel {
 
     public get fileInsights(): GgufInsights {
         return this._fileInsights;
+    }
+
+    /**
+     * The multimodal projector loaded with this model, or `null` if none was loaded.
+     * Set via the `mmprojPath` option when loading the model.
+     * Can also be loaded later via {@link loadMmproj}.
+     */
+    public get mmproj(): LlamaMmproj | null {
+        return this._defaultMmproj;
     }
 
     /**
@@ -766,6 +797,36 @@ export class LlamaModel {
         });
     }
 
+    /**
+     * Load a multimodal projector (mmproj) for vision/audio support.
+     * The mmproj file is loaded once and cached by resolved file path.
+     * Subsequent calls with the same path return the cached instance
+     * (options from the first call are used).
+     */
+    public async loadMmproj(filePath: string, options?: LlamaMmprojOptions): Promise<LlamaMmproj> {
+        this._ensureNotDisposed();
+
+        const resolvedPath = path.resolve(process.cwd(), filePath);
+        if (this._mtmdContexts.has(resolvedPath))
+            return this._mtmdContexts.get(resolvedPath)!;
+
+        return await withLock([this._mtmdContexts, "modify"], async () => {
+            if (this._mtmdContexts.has(resolvedPath))
+                return this._mtmdContexts.get(resolvedPath)!;
+
+            if (this._llama._bindings.AddonMtmd == null)
+                throw new Error("Multimodal support is not available in this build. Rebuild with NLC_MULTIMODAL=ON.");
+
+            const addonMtmd = new this._llama._bindings.AddonMtmd(this._model, resolvedPath, options);
+            await addonMtmd.init();
+
+            const mmproj = LlamaMmproj._create(addonMtmd);
+            this._mtmdContexts.set(resolvedPath, mmproj);
+
+            return mmproj;
+        });
+    }
+
     /** @internal */
     public static async _create(modelOptions: LlamaModelOptions, {
         _llama
@@ -896,6 +957,13 @@ export class LlamaModel {
             model._ramConsumptionMarking = _llama._ramOrchestrator.markAllocation(memoryBreakdown.cpuRam);
             modelCreationVramReservation?.dispose?.();
             modelCreationRamReservation?.dispose?.();
+
+            if (modelOptions.mmprojPath != null) {
+                model._defaultMmproj = await model.loadMmproj(
+                    modelOptions.mmprojPath,
+                    modelOptions.mmprojOptions
+                );
+            }
 
             return model;
         } finally {

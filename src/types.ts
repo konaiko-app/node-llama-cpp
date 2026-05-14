@@ -321,10 +321,38 @@ export type ChatSystemMessage = {
     type: "system",
     text: string | LlamaTextJSON
 };
+export type ChatImageInput = {
+    data: Uint8Array,
+    width: number,
+    height: number
+} | {
+    fileData: Uint8Array
+};
+
+export type ChatUserContentPart =
+    | {type: "text", text: string}
+    | {type: "image", image: ChatImageInput};
+
 export type ChatUserMessage = {
     type: "user",
-    text: string
+    text: string | ChatUserContentPart[]
 };
+
+/**
+ * Extract the plain text string from a `ChatUserMessage.text` value.
+ * When `.text` is already a string, returns it directly.
+ * When `.text` is a `ChatUserContentPart[]`, joins the text parts.
+ */
+export function chatUserMessageTextToString(text: string | ChatUserContentPart[]): string {
+    if (typeof text === "string")
+        return text;
+
+    return text
+        .filter((p): p is {type: "text", text: string} => p.type === "text")
+        .map((p) => p.text)
+        .join("");
+}
+
 export type ChatModelResponse = {
     type: "model",
     response: Array<string | ChatModelFunctionCall | ChatModelSegment>

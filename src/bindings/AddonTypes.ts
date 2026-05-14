@@ -42,6 +42,15 @@ export type BindingModule = {
     AddonModelLora: {
         new (model: AddonModel, filePath: string): AddonModelLora
     },
+    AddonMtmd?: {
+        new (model: AddonModel, mmprojPath: string, options?: {
+            useGpu?: boolean,
+            mediaMarker?: string,
+            threads?: number,
+            imageMinTokens?: number,
+            imageMaxTokens?: number
+        }): AddonMtmd
+    },
     AddonContext: {
         new (model: AddonModel, params: AddonContextParams): AddonContext
     },
@@ -261,6 +270,64 @@ export type AddonModelLora = {
     usages: number,
     readonly filePath: string,
     readonly disposed: boolean,
+    dispose(): Promise<void>
+};
+
+export type MtmdBitmapInput = {
+    data: Uint8Array,
+    width: number,
+    height: number
+} | {
+    fileData: Uint8Array  // raw file bytes (JPEG, PNG, etc.) — decoded internally
+};
+
+export type MtmdTokenizeOptions = {
+    addSpecial?: boolean,
+    parseSpecial?: boolean
+};
+
+export type MtmdChunk = {
+    type: "text" | "image" | "audio" | "unknown",
+    nTokens: number,
+    nPos: number,
+    tokens?: Uint32Array,       // present for text chunks
+    embeddings?: Float32Array   // present for image/audio chunks
+};
+
+export type MtmdTokenizeResult = {
+    chunks: MtmdChunk[],
+    usesMRope: boolean
+};
+
+export type AddonMtmd = {
+    init(): Promise<void>,
+    tokenize(
+        text: string,
+        bitmaps: MtmdBitmapInput[],
+        options?: MtmdTokenizeOptions
+    ): Promise<MtmdTokenizeResult>,
+    /**
+     * One-shot: tokenize + encode + decode all chunks through a context.
+     * Returns the updated n_past position.
+     *
+     * WARNING: This calls llama_decode directly, bypassing the JS-side
+     * batch queue and sequence management. After calling this, the JS-side
+     * KV cache state will be out of sync. Use `tokenize()` instead for
+     * integration with LlamaContext's managed batch pipeline.
+     */
+    evalChunks(
+        context: AddonContext,
+        text: string,
+        bitmaps: MtmdBitmapInput[],
+        nPast: number,
+        seqId: number,
+        options?: MtmdTokenizeOptions
+    ): Promise<number>,
+    usages: number,
+    readonly filePath: string,
+    readonly disposed: boolean,
+    readonly supportsVision: boolean,
+    readonly supportsAudio: boolean,
     dispose(): Promise<void>
 };
 

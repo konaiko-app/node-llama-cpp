@@ -1,7 +1,7 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
 import {
     ChatModelFunctions, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings,
-    isChatModelResponseSegment
+    chatUserMessageTextToString, isChatModelResponseSegment
 } from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 import {ChatModelFunctionsDocumentationGenerator} from "./utils/ChatModelFunctionsDocumentationGenerator.js";
@@ -194,7 +194,7 @@ export class DeepSeekChatWrapper extends ChatWrapper {
                 if (item.type === "user")
                     return LlamaText([
                         new SpecialTokensText("<｜User｜>"),
-                        item.text
+                        chatUserMessageTextToString(item.text)
                     ]);
                 else if (item.type === "model")
                     return LlamaText([

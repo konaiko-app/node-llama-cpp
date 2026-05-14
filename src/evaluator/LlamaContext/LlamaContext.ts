@@ -1193,6 +1193,20 @@ export class LlamaContextSequence {
     }
 
     /**
+     * @internal
+     * Sync sequence state after an external evaluation (e.g. `evalChunks`) that
+     * bypasses the managed batch pipeline and writes directly into the KV cache.
+     *
+     * This replaces the tracked context tokens, resets token predictions, and
+     * advances the next-token index to match the externally-evaluated position.
+     */
+    public _syncStateFromExternalEval(contextTokens: Token[], nPast: number): void {
+        this._contextTokens = contextTokens;
+        this._nextTokenIndex = nPast;
+        this._loadedTokenPredictions = [];
+    }
+
+    /**
      * The token predictor used when creating this sequence.
      */
     public get tokenPredictor() {

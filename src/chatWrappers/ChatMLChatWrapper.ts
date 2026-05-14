@@ -1,5 +1,5 @@
 import {ChatWrapper} from "../ChatWrapper.js";
-import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState} from "../types.js";
+import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, chatUserMessageTextToString} from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 
 // source: https://github.com/openai/openai-python/blob/120d225b91a8453e15240a49fb1c6794d8119326/chatml.md
@@ -48,7 +48,7 @@ export class ChatMLChatWrapper extends ChatWrapper {
                 flush();
 
                 currentAggregateFocus = null;
-                userTexts.push(LlamaText(item.text));
+                userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
             } else if (item.type === "model") {
                 flush();
 

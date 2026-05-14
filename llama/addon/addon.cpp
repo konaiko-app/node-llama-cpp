@@ -8,6 +8,7 @@
 #include "AddonGrammarEvaluationState.h"
 #include "AddonModel.h"
 #include "AddonModelLora.h"
+#include "AddonMtmd.h"
 #include "AddonSampler.h"
 #include "addonGlobals.h"
 #include "globals/addonLog.h"
@@ -320,6 +321,9 @@ Napi::Object registerCallback(Napi::Env env, Napi::Object exports) {
     AddonGgufMetadata::init(exports);
     AddonModel::init(exports);
     AddonModelLora::init(exports);
+#ifdef NLC_HAS_MTMD
+    AddonMtmd::init(exports);
+#endif
     AddonGrammar::init(exports);
     AddonGrammarEvaluationState::init(exports);
     AddonContext::init(exports);

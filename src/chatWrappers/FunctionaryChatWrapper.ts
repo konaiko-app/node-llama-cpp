@@ -1,8 +1,8 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
 import {
     ChatHistoryItem, ChatModelFunctionCall, ChatModelFunctions, ChatModelResponse, ChatModelSegment,
-    ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, isChatModelResponseFunctionCall,
-    isChatModelResponseSegment
+    ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, chatUserMessageTextToString,
+    isChatModelResponseFunctionCall, isChatModelResponseSegment
 } from "../types.js";
 import {LlamaText, SpecialToken, SpecialTokensText} from "../utils/LlamaText.js";
 import {ChatModelFunctionsDocumentationGenerator} from "./utils/ChatModelFunctionsDocumentationGenerator.js";
@@ -160,7 +160,7 @@ export class FunctionaryChatWrapper extends ChatWrapper {
                 } else if (item.type === "user") {
                     return LlamaText([
                         new SpecialTokensText("<|start_header_id|>user<|end_header_id|>\n\n"),
-                        item.text,
+                        chatUserMessageTextToString(item.text),
                         new SpecialTokensText("<|eot_id|>")
                     ]);
                 } else if (item.type === "model") {
@@ -325,7 +325,7 @@ export class FunctionaryChatWrapper extends ChatWrapper {
                 } else if (item.type === "user") {
                     return LlamaText([
                         new SpecialTokensText("<|start_header_id|>user<|end_header_id|>\n\n"),
-                        item.text,
+                        chatUserMessageTextToString(item.text),
                         new SpecialTokensText("<|eot_id|>")
                     ]);
                 } else if (item.type === "model") {
@@ -466,7 +466,7 @@ export class FunctionaryChatWrapper extends ChatWrapper {
                         new SpecialTokensText("<|from|>user\n"),
                         new SpecialTokensText("<|recipient|>all\n"),
                         new SpecialTokensText("<|content|>"),
-                        item.text
+                        chatUserMessageTextToString(item.text)
                     ]);
                 } else if (item.type === "model") {
                     if (isLastItem && item.response.length === 0 && !hasFunctions)

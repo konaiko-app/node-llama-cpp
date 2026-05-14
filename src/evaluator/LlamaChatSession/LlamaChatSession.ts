@@ -2,7 +2,7 @@ import {DisposeAggregator, DisposedError, EventRelay, withLock} from "lifecycle-
 import {ChatWrapper} from "../../ChatWrapper.js";
 import {
     ChatHistoryItem, ChatModelFunctionCall, ChatModelFunctions, ChatModelResponse, ChatSessionModelFunction, ChatSessionModelFunctions,
-    Token
+    ChatUserContentPart, Token
 } from "../../types.js";
 import {appendUserMessageToChatHistory} from "../../utils/appendUserMessageToChatHistory.js";
 import {LlamaContextSequence} from "../LlamaContext/LlamaContext.js";
@@ -11,6 +11,7 @@ import {
     LlamaChat, LLamaChatContextShiftOptions, LlamaChatResponse, LlamaChatResponseChunk, LlamaChatResponseFunctionCall,
     LlamaChatResponseFunctionCallParamsChunk
 } from "../LlamaChat/LlamaChat.js";
+import {normalizeHistory} from "../LlamaMmprojChat.js";
 import {EvaluationPriority} from "../LlamaContext/types.js";
 import {TokenBias} from "../TokenBias.js";
 import {LlamaText, LlamaTextJSON} from "../../utils/LlamaText.js";
@@ -279,7 +280,15 @@ export type LLamaChatPromptOptions<Functions extends ChatSessionModelFunctions |
          * When the context size is smaller than `8192`, defaults to 50% of the context size.
          */
         commentTokens?: number
-    }
+    },
+
+    /**
+     * When true, extract per-token confidence (softmax probability) from the sampler.
+     * The confidence value will be included in `onResponseChunk` callbacks.
+     *
+     * Essentially free for local models; defaults to `false`.
+     */
+    confidence?: boolean
 } & ({
     grammar?: LlamaGrammar,
     functions?: never,
@@ -616,7 +625,7 @@ export class LlamaChatSession {
     }
 
     public async prompt<const Functions extends ChatSessionModelFunctions | undefined = undefined>(
-        prompt: string,
+        prompt: string | ChatUserContentPart[],
         options: LLamaChatPromptOptions<Functions> = {}
     ) {
         const {
@@ -643,7 +652,8 @@ export class LlamaChatSession {
             repeatPenalty,
             dryRepeatPenalty,
             tokenBias,
-            customStopTriggers
+            customStopTriggers,
+            confidence
         } = options;
 
         const {responseText} = await this.promptWithMeta<Functions>(prompt, {
@@ -656,7 +666,8 @@ export class LlamaChatSession {
 
             onTextChunk, onToken, onResponseChunk, budgets, signal, stopOnAbortSignal, maxTokens,
             temperature, minP, topK, topP, seed, xtc,
-            trimWhitespaceSuffix, responsePrefix, repeatPenalty, dryRepeatPenalty, tokenBias, customStopTriggers
+            trimWhitespaceSuffix, responsePrefix, repeatPenalty, dryRepeatPenalty, tokenBias, customStopTriggers,
+            confidence
         });
 
         return responseText;
@@ -666,7 +677,7 @@ export class LlamaChatSession {
      * @param prompt
      * @param [options]
      */
-    public async promptWithMeta<const Functions extends ChatSessionModelFunctions | undefined = undefined>(prompt: string, {
+    public async promptWithMeta<const Functions extends ChatSessionModelFunctions | undefined = undefined>(prompt: string | ChatUserContentPart[], {
         functions,
         documentFunctionParams,
         maxParallelFunctionCalls,
@@ -691,7 +702,8 @@ export class LlamaChatSession {
         dryRepeatPenalty,
         tokenBias,
         customStopTriggers,
-        evaluationPriority
+        evaluationPriority,
+        confidence
     }: LLamaChatPromptOptions<Functions> = {}) {
         this._ensureNotDisposed();
 
@@ -711,10 +723,20 @@ export class LlamaChatSession {
             let lastEvaluation = this._canUseContextWindowForCompletion
                 ? this._lastEvaluation
                 : undefined;
-            let newChatHistory = appendUserMessageToChatHistory(this._chatHistory, prompt);
-            let newContextWindowChatHistory = lastEvaluation?.contextWindow == null
+            // Build the raw chat history with the user prompt (including any image content parts)
+            const rawChatHistory = appendUserMessageToChatHistory(this._chatHistory, prompt);
+            const rawContextWindowChatHistory = lastEvaluation?.contextWindow == null
                 ? undefined
                 : appendUserMessageToChatHistory(lastEvaluation?.contextWindow, prompt);
+
+            // Normalize history: replace image content parts with text markers, collect images
+            const {chatHistory: normalizedChatHistory, images: extractedImages} = normalizeHistory(rawChatHistory);
+            let newChatHistory = normalizedChatHistory;
+            let newContextWindowChatHistory = rawContextWindowChatHistory != null
+                ? normalizeHistory(rawContextWindowChatHistory).chatHistory
+                : undefined;
+            const _images = extractedImages.length > 0 ? extractedImages : undefined;
+
             let previousFunctionCalls: number = 0;
 
             const resolvedResponsePrefix = (responsePrefix != null && responsePrefix !== "")
@@ -796,11 +818,13 @@ export class LlamaChatSession {
                         maxTokens,
                         temperature,
                         trimWhitespaceSuffix,
+                        _images,
                         contextShift: {
                             ...this._contextShift,
                             lastEvaluationMetadata: lastEvaluation?.contextShiftMetadata
                         },
                         evaluationPriority,
+                        confidence,
                         lastEvaluationContextWindow: {
                             history: newContextWindowChatHistory,
                             minimumOverlapPercentageToPreventContextShift: 0.5

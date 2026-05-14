@@ -1,4 +1,4 @@
-import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings} from "../../types.js";
+import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, chatUserMessageTextToString} from "../../types.js";
 import {SpecialToken, LlamaText, LlamaTextValue, SpecialTokensText} from "../../utils/LlamaText.js";
 import {ChatWrapper} from "../../ChatWrapper.js";
 import {parseTextTemplate} from "../../utils/parseTextTemplate.js";
@@ -164,7 +164,7 @@ export class TemplateChatWrapper extends ChatWrapper {
                     flush();
 
                 currentAggregateFocus = "user";
-                userTexts.push(LlamaText(item.text));
+                userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
             } else if (item.type === "model") {
                 if (!this.joinAdjacentMessagesOfTheSameType)
                     flush();

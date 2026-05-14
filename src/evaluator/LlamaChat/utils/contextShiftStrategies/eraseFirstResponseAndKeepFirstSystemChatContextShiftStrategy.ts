@@ -1,5 +1,6 @@
 import {
-    ChatHistoryItem, ChatModelResponse, isChatModelResponseFunctionCall, isChatModelResponseSegment, Tokenizer
+    ChatHistoryItem, ChatModelResponse, chatUserMessageTextToString, isChatModelResponseFunctionCall, isChatModelResponseSegment,
+    Tokenizer
 } from "../../../../types.js";
 import {findCharacterRemovalCountToFitChatHistoryInContext} from "../../../../utils/findCharacterRemovalCountToFitChatHistoryInContext.js";
 import {truncateLlamaTextAndRoundToWords, truncateTextAndRoundToWords} from "../../../../utils/truncateTextAndRoundToWords.js";
@@ -88,14 +89,17 @@ export async function eraseFirstResponseAndKeepFirstSystemChatContextShiftStrate
                         break; // keep the first system message
 
                     if (historyItem.type === "user" || historyItem.type === "system") {
+                        const itemTextAsLlamaText = historyItem.type === "user"
+                            ? LlamaText(chatUserMessageTextToString(historyItem.text))
+                            : LlamaText.fromJSON(historyItem.text);
                         const newText = truncateLlamaTextAndRoundToWords(
-                            LlamaText.fromJSON(historyItem.text),
+                            itemTextAsLlamaText,
                             charactersLeftToRemove,
                             undefined,
                             false
                         );
                         const newTextString = newText.toString();
-                        const historyItemString = LlamaText.fromJSON(historyItem.text).toString();
+                        const historyItemString = itemTextAsLlamaText.toString();
 
                         if (newText.values.length === 0) {
                             res.splice(i, 1);
@@ -147,7 +151,8 @@ export async function eraseFirstResponseAndKeepFirstSystemChatContextShiftStrate
                     if (historyItem == null || historyItem.type !== "user")
                         continue;
 
-                    let removeChars = Math.min(charactersLeftToRemove, historyItem.text.length);
+                    const textString = chatUserMessageTextToString(historyItem.text);
+                    let removeChars = Math.min(charactersLeftToRemove, textString.length);
                     if (keepTokensCount > 0) {
                         removeChars -= Math.floor(keepTokensCount * estimatedCharactersPerToken);
                         if (removeChars < 0)
@@ -155,19 +160,19 @@ export async function eraseFirstResponseAndKeepFirstSystemChatContextShiftStrate
 
                         keepTokensCount -= Math.min(
                             keepTokensCount,
-                            Math.max(0, historyItem.text.length - removeChars) / estimatedCharactersPerToken
+                            Math.max(0, textString.length - removeChars) / estimatedCharactersPerToken
                         );
                     }
 
-                    const newText = truncateTextAndRoundToWords(historyItem.text, removeChars, undefined, false);
+                    const newText = truncateTextAndRoundToWords(textString, removeChars, undefined, false);
                     if (newText.length === 0) {
                         res.splice(i, 1);
                         i--;
                         index--;
                         removedItems++;
-                        charactersLeftToRemove -= historyItem.text.length;
+                        charactersLeftToRemove -= textString.length;
                     } else {
-                        charactersLeftToRemove -= historyItem.text.length - newText.length;
+                        charactersLeftToRemove -= textString.length - newText.length;
                         historyItem.text = newText;
                     }
                 }

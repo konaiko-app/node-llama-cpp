@@ -2,7 +2,7 @@ import {Template} from "@huggingface/jinja";
 import {splitText} from "lifecycle-utils";
 import {
     ChatHistoryItem, ChatModelFunctions, ChatUserMessage, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState,
-    ChatWrapperSettings, Tokenizer
+    ChatWrapperSettings, Tokenizer, chatUserMessageTextToString
 } from "../../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../../utils/LlamaText.js";
 import {ChatWrapper} from "../../ChatWrapper.js";
@@ -569,7 +569,7 @@ export class JinjaTemplateChatWrapper extends ChatWrapper {
                 else if (item.type === "user")
                     return {
                         role: "user",
-                        content: LlamaText(item.text)
+                        content: LlamaText(chatUserMessageTextToString(item.text))
                     };
                 else if (item.type === "model")
                     return {

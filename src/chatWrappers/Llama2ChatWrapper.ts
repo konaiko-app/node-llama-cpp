@@ -1,5 +1,5 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
-import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState} from "../types.js";
+import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, chatUserMessageTextToString} from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 
 // source: https://huggingface.co/blog/llama2#how-to-prompt-llama-2
@@ -64,7 +64,7 @@ export class Llama2ChatWrapper extends ChatWrapper {
                     flush();
 
                 currentAggregateFocus = "user";
-                userTexts.push(LlamaText(item.text));
+                userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
             } else if (item.type === "model") {
                 currentAggregateFocus = "model";
                 modelTexts.push(this.generateModelResponseText(item.response));

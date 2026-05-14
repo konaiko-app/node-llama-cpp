@@ -1,7 +1,7 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
 import {
     ChatHistoryItem, ChatModelFunctions, ChatSystemMessage, ChatWrapperCheckModelCompatibilityParams,
-    ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings
+    ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, chatUserMessageTextToString
 } from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 import {ChatModelFunctionsDocumentationGenerator} from "./utils/ChatModelFunctionsDocumentationGenerator.js";
@@ -165,7 +165,7 @@ export class Llama3_1ChatWrapper extends ChatWrapper {
                     flush();
 
                 currentAggregateFocus = "user";
-                userTexts.push(LlamaText(item.text));
+                userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
             } else if (item.type === "model") {
                 if (currentAggregateFocus !== "model")
                     flush();

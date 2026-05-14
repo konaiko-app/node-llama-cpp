@@ -1,4 +1,4 @@
-import {ChatHistoryItem, ChatModelResponse} from "../../types.js";
+import {ChatHistoryItem, ChatModelResponse, chatUserMessageTextToString} from "../../types.js";
 import {LlamaText} from "../../utils/LlamaText.js";
 
 export function chunkChatItems(chatHistory: readonly ChatHistoryItem[], {
@@ -44,7 +44,7 @@ export function chunkChatItems(chatHistory: readonly ChatHistoryItem[], {
                 flush();
 
             currentAggregateFocus = "user";
-            userTexts.push(LlamaText(item.text));
+            userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
         } else if (item.type === "model") {
             if (!joinAdjacentMessagesOfTheSameType)
                 flush();

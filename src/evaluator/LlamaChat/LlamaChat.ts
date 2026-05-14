@@ -13,7 +13,7 @@ import {LlamaGrammarEvaluationState} from "../LlamaGrammarEvaluationState.js";
 import {LlamaText, LlamaTextJSON, SpecialToken} from "../../utils/LlamaText.js";
 import {StopGenerationDetector} from "../../utils/StopGenerationDetector.js";
 import {QueuedTokenRelease, QueuedTokenReleaseLock, TokenStreamRegulator} from "../../utils/TokenStreamRegulator.js";
-import {EvaluationPriority} from "../LlamaContext/types.js";
+import {EvaluationPriority, SequenceEvaluateOutput} from "../LlamaContext/types.js";
 import {maxRecentDetokenizerTokens, UNKNOWN_UNICODE_CHAR} from "../../consts.js";
 import {getQueuedTokensBeforeStopTrigger} from "../../utils/getQueuedTokensBeforeStopTrigger.js";
 import {resolveChatWrapper} from "../../chatWrappers/utils/resolveChatWrapper.js";
@@ -27,6 +27,7 @@ import {getChatWrapperSegmentDefinition} from "../../utils/getChatWrapperSegment
 import {jsonDumps} from "../../chatWrappers/utils/jsonDumps.js";
 import {defaultMaxPreloadTokens} from "../LlamaChatSession/utils/LlamaChatSessionPromptCompletionEngine.js";
 import {LlamaLogLevel} from "../../bindings/types.js";
+import {MtmdBitmapInput} from "../../bindings/AddonTypes.js";
 import {
     eraseFirstResponseAndKeepFirstSystemChatContextShiftStrategy
 } from "./utils/contextShiftStrategies/eraseFirstResponseAndKeepFirstSystemChatContextShiftStrategy.js";
@@ -69,7 +70,13 @@ export type LlamaChatResponseTextChunk = {
     text: string,
 
     /** The generated tokens */
-    tokens: Token[]
+    tokens: Token[],
+
+    /**
+     * The softmax probability (0-1) of the most recently generated token in this chunk.
+     * Only present when confidence extraction is enabled.
+     */
+    confidence?: number
 };
 
 export type LlamaChatResponseSegmentChunk = {
@@ -90,6 +97,12 @@ export type LlamaChatResponseSegmentChunk = {
 
     /** The generated tokens */
     tokens: Token[],
+
+    /**
+     * The softmax probability (0-1) of the most recently generated token in this chunk.
+     * Only present when confidence extraction is enabled.
+     */
+    confidence?: number,
 
     /**
      * When the current chunk is the start of a segment, this field will be set.
@@ -382,7 +395,22 @@ export type LLamaChatGenerateResponseOptions<Functions extends ChatModelFunction
      *
      * Defaults to `false`.
      */
-    abortOnNonText?: boolean
+    abortOnNonText?: boolean,
+
+    /**
+     * When true, extract per-token confidence (softmax probability) from the sampler.
+     * The confidence value will be included in `onResponseChunk` callbacks.
+     *
+     * Essentially free for local models; defaults to `false`.
+     */
+    confidence?: boolean,
+
+    /**
+     * @internal
+     * Multimodal images to embed via evalChunks before token generation.
+     * Passed internally by LlamaChatSession when the prompt contains image content parts.
+     */
+    _images?: MtmdBitmapInput[]
 } & ({
     grammar?: LlamaGrammar,
     functions?: never,
@@ -633,14 +661,20 @@ export class LlamaChat {
             contextShift = defaultContextShiftOptions,
             customStopTriggers,
             abortOnNonText = false,
+            confidence,
+            _images,
             lastEvaluationContextWindow: {
                 history: lastEvaluationContextWindowHistory,
                 minimumOverlapPercentageToPreventContextShift = 0.5
             } = {}
         } = options;
 
+        const lastUserText = findLastUserMessageInChatHistory(history)?.text ?? "";
+        const lastUserTextString = typeof lastUserText === "string"
+            ? lastUserText
+            : lastUserText.filter((p) => p.type === "text").map((p) => (p as {type: "text", text: string}).text).join("");
         this.sequence.tokenPredictor?.updateInputTokens?.(
-            this.model.tokenize(findLastUserMessageInChatHistory(history)?.text ?? "")
+            this.model.tokenize(lastUserTextString)
         );
         const generateResponseState = new GenerateResponseState<Functions>(
             this,
@@ -673,7 +707,9 @@ export class LlamaChat {
                 maxParallelFunctionCalls,
                 contextShift,
                 customStopTriggers,
+                _images,
                 abortOnNonText,
+                confidence,
                 lastEvaluationContextWindow: {
                     history: lastEvaluationContextWindowHistory,
                     minimumOverlapPercentageToPreventContextShift
@@ -1288,11 +1324,18 @@ function getLastModelMessageFullResponseFromChatHistory(chatHistory: ChatHistory
     return lastModelResponseItem.response;
 }
 
-function getLastUserTextFromChatHistory(chatHistory: readonly ChatHistoryItem[]) {
+function getLastUserTextFromChatHistory(chatHistory: readonly ChatHistoryItem[]): string {
     if (chatHistory.length === 0 || chatHistory[chatHistory.length - 1]!.type !== "user")
         return "";
 
-    return (chatHistory[chatHistory.length - 1] as ChatUserMessage).text;
+    const text = (chatHistory[chatHistory.length - 1] as ChatUserMessage).text;
+    if (typeof text === "string")
+        return text;
+
+    return text
+        .filter((p): p is {type: "text", text: string} => p.type === "text")
+        .map((p) => p.text)
+        .join("");
 }
 
 function setLastUserTextInChatHistory(chatHistory: readonly ChatHistoryItem[], userText: string) {
@@ -1723,6 +1766,9 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
     private readonly contextShift: LLamaChatGenerateResponseOptions<Functions>["contextShift"];
     private readonly customStopTriggers: LLamaChatGenerateResponseOptions<Functions>["customStopTriggers"];
     public readonly abortOnNonText: boolean;
+    private readonly confidence: boolean;
+    private readonly images: MtmdBitmapInput[] | undefined;
+    public imagePromptText: string | undefined;
     private readonly minimumOverlapPercentageToPreventContextShift: Exclude<Exclude<LLamaChatGenerateResponseOptions<Functions>["lastEvaluationContextWindow"], undefined>["minimumOverlapPercentageToPreventContextShift"], undefined>;
 
     public readonly functionsEnabled: boolean;
@@ -1804,10 +1850,11 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
     public tokens: Token[] = [];
 
     // token evaluation loop
-    public evaluationIterator?: AsyncGenerator<Token, void | Token>;
-    public currentIteration?: IteratorResult<Token, void | Token>;
+    public evaluationIterator?: AsyncGenerator<Token, void | Token> | AsyncGenerator<SequenceEvaluateOutput<{readonly confidence: true}>, void, void | Token | Token[]>;
+    public currentIteration?: IteratorResult<Token | SequenceEvaluateOutput<{readonly confidence: true}>, void | Token | SequenceEvaluateOutput<{readonly confidence: true}>>;
     public currentIterationReplacementToken?: Token;
     public currentToken?: Token;
+    public currentTokenConfidence?: number;
     public currentTokens: Token[] = [];
     public currentText: string = "";
     public currentQueuedTokenRelease?: QueuedTokenRelease;
@@ -1844,6 +1891,8 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
             contextShift = defaultContextShiftOptions,
             customStopTriggers,
             abortOnNonText,
+            confidence,
+            _images,
             lastEvaluationContextWindow: {
                 history: lastEvaluationContextWindowHistory,
                 minimumOverlapPercentageToPreventContextShift = 0.5
@@ -1879,6 +1928,8 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
         this.contextShift = contextShift;
         this.customStopTriggers = customStopTriggers;
         this.abortOnNonText = abortOnNonText ?? false;
+        this.confidence = confidence ?? false;
+        this.images = (_images != null && _images.length > 0) ? _images : undefined;
         this.minimumOverlapPercentageToPreventContextShift = minimumOverlapPercentageToPreventContextShift;
 
         this.functionsEnabled = (this.functions != null && Object.keys(this.functions).length > 0);
@@ -2366,6 +2417,19 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
             if (removeRawFromHistory && !this.noRawInResolvedHistory) {
                 this.noRawInResolvedHistory = true;
                 this.resolvedHistory = this.resolvedHistory.map(removeRawFromHistoryItem);
+            }
+
+            // When images are present, compute the prompt text for evalChunks
+            if (this.images != null && this.images.length > 0) {
+                const contextState = this.chatWrapper.generateContextState({
+                    chatHistory: contextWindowHistory,
+                    availableFunctions: this.functionsEnabled ? this.functions : undefined,
+                    documentFunctionParams: this.documentFunctionParams
+                });
+                this.imagePromptText = contextState.contextText.values
+                    .filter((v): v is string => !(v instanceof SpecialToken))
+                    .map((v) => v.toString())
+                    .join("");
             }
         }
 
@@ -3165,6 +3229,47 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
     }
 
     public async alignCurrentSequenceStateWithCurrentTokens() {
+        // When images are present, use evalChunks to load the full context with image embeddings
+        if (this.images != null && this.images.length > 0 && this.imagePromptText != null) {
+            const mmproj = this.llamaChat.model.mmproj;
+            if (mmproj == null)
+                throw new Error(
+                    "No multimodal projector available. Load the model with `mmprojPath` to use image inputs."
+                );
+
+            const seq = this.llamaChat.sequence;
+
+            // Clear any existing sequence state
+            if (seq.nextTokenIndex > 0) {
+                await seq.eraseContextTokenRanges([{
+                    start: 0,
+                    end: seq.nextTokenIndex
+                }]);
+            }
+
+            // Use evalChunks to decode the full prompt (text + image embeddings) into the KV cache
+            const nPast = await mmproj.evalChunks(
+                this.llamaChat.context,
+                this.imagePromptText,
+                this.images,
+                0,
+                seq._internalSequenceId
+            );
+
+            // Sync the sequence state to match what evalChunks loaded
+            const tokenized = this.llamaChat.model.tokenize(this.imagePromptText);
+            seq._syncStateFromExternalEval(tokenized, nPast);
+
+            // Nothing left to evaluate — evalChunks already loaded everything
+            this.tokens = [];
+
+            // Clear images so subsequent calls (e.g. after context shift) use the normal path
+            (this as unknown as {images: MtmdBitmapInput[] | undefined}).images = undefined;
+            this.imagePromptText = undefined;
+
+            return;
+        }
+
         if (this.tokens.length === 1 && this.llamaChat.sequence.nextTokenIndex !== 0) {
             await this.llamaChat.sequence.eraseContextTokenRanges([{
                 start: 0,
@@ -3219,7 +3324,8 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
 
         this.currentIterationReplacementToken = undefined;
         this.restartEvaluationIterator = false;
-        this.evaluationIterator = this.llamaChat.sequence.evaluate(this.tokens, removeNullFields({
+
+        const evalOptions = removeNullFields({
             temperature: this.temperature,
             minP: this.minP,
             topK: this.topK,
@@ -3243,18 +3349,39 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
             tokenBias: this.tokenBias,
             evaluationPriority: this.evaluationPriority,
             yieldEogToken: true
-        }));
+        });
+
+        if (this.confidence) {
+            this.evaluationIterator = this.llamaChat.sequence.evaluateWithMetadata(
+                this.tokens,
+                {confidence: true} as const,
+                evalOptions
+            );
+        } else {
+            this.evaluationIterator = this.llamaChat.sequence.evaluate(this.tokens, evalOptions);
+        }
     }
 
     public async iterateEvaluation() {
-        this.currentIteration = await this.evaluationIterator?.next(this.currentIterationReplacementToken);
+        this.currentIteration = await (this.evaluationIterator as AsyncGenerator<any, any, any>)?.next(this.currentIterationReplacementToken);
         this.currentIterationReplacementToken = undefined;
 
         this.ensureNotAborted();
         this.generatedTokens++;
 
         if ((this.currentIteration != null && this.currentIteration?.done !== true) || this.pendingPartialTokens.length !== 0) {
-            this.currentToken = this.currentIteration?.value ?? undefined;
+            const iterValue = this.currentIteration?.value;
+
+            // evaluateWithMetadata yields {token, confidence}; evaluate yields Token directly
+            if (this.confidence && iterValue != null && typeof iterValue === "object" && "token" in iterValue) {
+                const meta = iterValue as SequenceEvaluateOutput<{readonly confidence: true}>;
+                this.currentToken = meta.token;
+                this.currentTokenConfidence = meta.confidence;
+            } else {
+                this.currentToken = (iterValue as Token | undefined) ?? undefined;
+                this.currentTokenConfidence = undefined;
+            }
+
             this.currentTokens = this.currentToken != null
                 ? this.pendingPartialTokens.length === 0
                     ? [this.currentToken]
@@ -3639,7 +3766,9 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
         if (this.pendingTokens.length === 0)
             return;
 
+        this.segmentHandler.currentConfidence = this.currentTokenConfidence;
         this.segmentHandler.processTokens(this.pendingTokens);
+        this.segmentHandler.currentConfidence = undefined;
         pushAll(this.res, this.pendingTokens);
         this.pendingTokens.length = 0;
     }
@@ -3671,6 +3800,9 @@ class SegmentHandler<const S extends ChatModelSegmentType = ChatModelSegmentType
     private readonly onToken?: LLamaChatGenerateResponseOptions["onToken"];
     private readonly onTextChunk?: LLamaChatGenerateResponseOptions["onTextChunk"];
     private readonly onResponseChunk?: LLamaChatGenerateResponseOptions["onResponseChunk"];
+
+    /** Set by the owning GenerateResponseState before each processTokens call. */
+    public currentConfidence?: number;
 
     private readonly _closeAllSegmentsDetector?: StopGenerationDetector;
     private readonly _segmentDetectors: Map<S, {
@@ -4071,7 +4203,7 @@ class SegmentHandler<const S extends ChatModelSegmentType = ChatModelSegmentType
 
                 this.onToken?.(tokens.slice());
                 this.onTextChunk?.(text);
-                this.onResponseChunk?.({type: undefined, segmentType: undefined, tokens: tokens.slice(), text});
+                this.onResponseChunk?.({type: undefined, segmentType: undefined, tokens: tokens.slice(), text, confidence: this.currentConfidence});
             } else {
                 const text = (this.onResponseChunk != null || this.onTextChunk != null)
                     ? this.model.detokenize(tokens, false, this._getTokenTrailFromResult())
@@ -4084,7 +4216,7 @@ class SegmentHandler<const S extends ChatModelSegmentType = ChatModelSegmentType
 
                 this.onToken?.(tokens.slice());
                 this.onTextChunk?.(text);
-                this.onResponseChunk?.({type: undefined, segmentType: undefined, tokens: tokens.slice(), text});
+                this.onResponseChunk?.({type: undefined, segmentType: undefined, tokens: tokens.slice(), text, confidence: this.currentConfidence});
             }
 
             if (lastContextWindowSegment == null)
@@ -4115,6 +4247,7 @@ class SegmentHandler<const S extends ChatModelSegmentType = ChatModelSegmentType
                     segmentType: type,
                     tokens: tokens.slice(),
                     text,
+                    confidence: this.currentConfidence,
                     segmentStartTime: new Date(now)
                 });
             } else {
@@ -4135,6 +4268,7 @@ class SegmentHandler<const S extends ChatModelSegmentType = ChatModelSegmentType
                         segmentType: type,
                         tokens: tokens.slice(),
                         text,
+                        confidence: this.currentConfidence,
                         segmentStartTime: new Date(now)
                     });
                 } else {
@@ -4144,6 +4278,7 @@ class SegmentHandler<const S extends ChatModelSegmentType = ChatModelSegmentType
                         segmentType: type,
                         tokens: tokens.slice(),
                         text,
+                        confidence: this.currentConfidence,
                         segmentStartTime: undefined
                     });
                 }

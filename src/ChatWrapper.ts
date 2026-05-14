@@ -1,7 +1,7 @@
 import {
     ChatHistoryItem, ChatModelFunctionCall, ChatModelFunctions, ChatModelResponse, ChatModelSegmentType,
     ChatWrapperCheckModelCompatibilityParams, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState,
-    ChatWrapperGenerateInitialHistoryOptions, ChatWrapperSettings, isChatModelResponseSegment
+    ChatWrapperGenerateInitialHistoryOptions, ChatWrapperSettings, chatUserMessageTextToString, isChatModelResponseSegment
 } from "./types.js";
 import {LlamaText, SpecialTokensText} from "./utils/LlamaText.js";
 import {ChatModelFunctionsDocumentationGenerator} from "./chatWrappers/utils/ChatModelFunctionsDocumentationGenerator.js";
@@ -44,7 +44,7 @@ export abstract class ChatWrapper {
                 if (item.type === "system")
                     return LlamaText(["system: ", LlamaText.fromJSON(item.text)]);
                 else if (item.type === "user")
-                    return LlamaText(["user: ", item.text]);
+                    return LlamaText(["user: ", chatUserMessageTextToString(item.text)]);
                 else if (item.type === "model")
                     return LlamaText(["model: ", this.generateModelResponseText(item.response)]);
 

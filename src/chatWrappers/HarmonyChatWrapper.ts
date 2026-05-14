@@ -1,6 +1,7 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
 import {
-    ChatModelFunctions, ChatModelResponse, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings
+    ChatModelFunctions, ChatModelResponse, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings,
+    chatUserMessageTextToString
 } from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 import {ChatModelFunctionsDocumentationGenerator} from "./utils/ChatModelFunctionsDocumentationGenerator.js";
@@ -211,7 +212,7 @@ export class HarmonyChatWrapper extends ChatWrapper {
                 contextContent.push(
                     LlamaText([
                         new SpecialTokensText("<|start|>user<|message|>"),
-                        item.text,
+                        chatUserMessageTextToString(item.text),
                         isLastItem
                             ? LlamaText([])
                             : new SpecialTokensText("<|end|>")

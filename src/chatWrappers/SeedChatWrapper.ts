@@ -1,7 +1,7 @@
 import {ChatWrapper} from "../ChatWrapper.js";
 import {
     ChatModelFunctions, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings,
-    isChatModelResponseSegment
+    chatUserMessageTextToString, isChatModelResponseSegment
 } from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 import {ChatModelFunctionsDocumentationGenerator} from "./utils/ChatModelFunctionsDocumentationGenerator.js";
@@ -115,7 +115,7 @@ export class SeedChatWrapper extends ChatWrapper {
                 contextContent.push(
                     LlamaText([
                         new SpecialTokensText("<seed:bos>system\n"),
-                        item.text,
+                        chatUserMessageTextToString(item.text),
                         isLastItem
                             ? LlamaText([])
                             : new SpecialTokensText("\n<seed:eos>")

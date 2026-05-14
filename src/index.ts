@@ -97,6 +97,10 @@ import {
 } from "./utils/createModelDownloader.js";
 import {jsonDumps} from "./chatWrappers/utils/jsonDumps.js";
 import {experimentalChunkDocument} from "./evaluator/utils/chunkDocument.js";
+import {LlamaMmproj, type LlamaMmprojOptions} from "./evaluator/LlamaMmproj.js";
+import {
+    type MtmdBitmapInput, type MtmdChunk, type MtmdTokenizeResult, type MtmdTokenizeOptions
+} from "./bindings/AddonTypes.js";
 
 import {
     type ChatHistoryItem, type ChatModelFunctionCall, type ChatModelSegmentType, type ChatModelSegment, type ChatModelFunctions,
@@ -147,6 +151,12 @@ export {
     LlamaModelInfillTokens,
     TokenAttributes,
     type LlamaModelOptions,
+    LlamaMmproj,
+    type LlamaMmprojOptions,
+    type MtmdBitmapInput,
+    type MtmdChunk,
+    type MtmdTokenizeResult,
+    type MtmdTokenizeOptions,
     LlamaGrammar,
     type LlamaGrammarOptions,
     LlamaJsonSchemaGrammar,

@@ -1,5 +1,5 @@
 import {ChatWrapper} from "../ChatWrapper.js";
-import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings} from "../types.js";
+import {ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState, ChatWrapperSettings, chatUserMessageTextToString} from "../types.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../utils/LlamaText.js";
 
 // source: https://ai.google.dev/gemma/docs/formatting
@@ -69,7 +69,7 @@ export class GemmaChatWrapper extends ChatWrapper {
                     flush();
 
                 currentAggregateFocus = "user";
-                userTexts.push(LlamaText(item.text));
+                userTexts.push(LlamaText(chatUserMessageTextToString(item.text)));
             } else if (item.type === "model") {
                 currentAggregateFocus = "model";
                 modelTexts.push(this.generateModelResponseText(item.response));

@@ -1,5 +1,5 @@
 import {splitText} from "lifecycle-utils";
-import {allSegmentTypes, ChatHistoryItem, ChatModelFunctions, ChatModelSegmentType, ChatWrapperSettings} from "../types.js";
+import {allSegmentTypes, ChatHistoryItem, ChatModelFunctions, ChatModelSegmentType, ChatWrapperSettings, chatUserMessageTextToString} from "../types.js";
 import {ChatWrapper} from "../ChatWrapper.js";
 import {jsonDumps} from "../chatWrappers/utils/jsonDumps.js";
 import {LlamaChatResponseFunctionCall} from "../evaluator/LlamaChat/LlamaChat.js";
@@ -185,7 +185,7 @@ export function fromChatHistoryToIntermediateOpenAiMessages<Functions extends Ch
         else if (item.type === "user")
             messages.push({
                 role: "user",
-                content: item.text
+                content: chatUserMessageTextToString(item.text)
             });
         else if (item.type === "model") {
             let lastModelTextMessage: (IntermediateOpenAiMessage & {role: "assistant"}) | null = null;

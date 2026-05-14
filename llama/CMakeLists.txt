@@ -88,6 +88,18 @@ endif()
 add_subdirectory("llama.cpp")
 include_directories("llama.cpp")
 include_directories("./llama.cpp/common")
+option(NLC_MULTIMODAL "Build with multimodal (vision/audio) support via mtmd" ON)
+
+if (NLC_MULTIMODAL)
+    include_directories("./llama.cpp/tools/mtmd")
+
+    # LLAMA_INSTALL_VERSION is set inside llama.cpp's subdirectory scope;
+    # provide a fallback so mtmd's set_target_properties(VERSION ...) doesn't fail
+    if (NOT DEFINED LLAMA_INSTALL_VERSION)
+        set(LLAMA_INSTALL_VERSION "0.0.0")
+    endif()
+    add_subdirectory("./llama.cpp/tools/mtmd" "mtmd" EXCLUDE_FROM_ALL)
+endif()
 
 # This is needed to use methods in "llama-grammar.h" and "unicode.h"
 target_include_directories(llama PUBLIC "./llama.cpp/src")
@@ -130,6 +142,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
 target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB})
 target_link_libraries(${PROJECT_NAME} "llama")
 target_link_libraries(${PROJECT_NAME} "llama-common")
+
+if (NLC_MULTIMODAL)
+    target_link_libraries(${PROJECT_NAME} "mtmd")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NLC_HAS_MTMD)
+endif()
 
 if (DEFINED GPU_INFO_EXTRA_LIBS)
     target_link_libraries(${PROJECT_NAME} ${GPU_INFO_EXTRA_LIBS})

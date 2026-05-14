@@ -1,6 +1,6 @@
 import {splitText} from "lifecycle-utils";
 import {ChatWrapper} from "../../ChatWrapper.js";
-import {ChatHistoryItem, ChatModelResponse, ChatUserMessage, ChatWrapperSettings, Tokenizer} from "../../types.js";
+import {ChatHistoryItem, ChatModelResponse, ChatUserMessage, ChatWrapperSettings, Tokenizer, chatUserMessageTextToString} from "../../types.js";
 import {JinjaTemplateChatWrapper, JinjaTemplateChatWrapperOptions} from "../generic/JinjaTemplateChatWrapper.js";
 import {SpecialToken, LlamaText, SpecialTokensText} from "../../utils/LlamaText.js";
 import {compareTokens} from "../../utils/compareTokens.js";
@@ -256,7 +256,7 @@ function convertTestChatHistoriesSystemMessagesToUserMessages(chatHistories: Cha
                                         template.split("{{message}}")
                                     ),
                                     "\n\n",
-                                    array[1]!.text
+                                    chatUserMessageTextToString(array[1]!.text)
                                 ]).toString()
                             } satisfies ChatHistoryItem;
                             return null;

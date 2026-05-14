@@ -1,7 +1,7 @@
 import {ChatWrapper, ChatWrapperJinjaMatchConfiguration} from "../ChatWrapper.js";
 import {
     ChatModelFunctionCall, ChatModelFunctions, ChatModelResponse, ChatWrapperGenerateContextStateOptions, ChatWrapperGeneratedContextState,
-    ChatWrapperSettings
+    ChatWrapperSettings, chatUserMessageTextToString
 } from "../types.js";
 import {LlamaText, SpecialToken, SpecialTokensText} from "../utils/LlamaText.js";
 import {jsonDumps} from "./utils/jsonDumps.js";
@@ -120,7 +120,7 @@ export class Gemma4ChatWrapper extends ChatWrapper {
                 contextContent.push(
                     LlamaText([
                         new SpecialTokensText("<|turn>user\n"),
-                        item.text,
+                        chatUserMessageTextToString(item.text),
                         isLastItem
                             ? LlamaText([])
                             : new SpecialTokensText("<turn|>\n")
