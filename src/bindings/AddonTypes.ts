@@ -323,7 +323,6 @@ export type AddonMtmd = {
         seqId: number,
         options?: MtmdTokenizeOptions
     ): Promise<number>,
-    usages: number,
     readonly filePath: string,
     readonly disposed: boolean,
     readonly supportsVision: boolean,

@@ -605,14 +605,6 @@ Napi::Value AddonMtmd::GetSupportsAudio(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(info.Env(), mtmd_support_audio(mtmdCtx));
 }
 
-Napi::Value AddonMtmd::GetUsages(const Napi::CallbackInfo& info) {
-    return Napi::Number::From(info.Env(), usages);
-}
-
-void AddonMtmd::SetUsages(const Napi::CallbackInfo& info, const Napi::Value &value) {
-    usages = value.As<Napi::Number>().Uint32Value();
-}
-
 Napi::Value AddonMtmd::Tokenize(const Napi::CallbackInfo& info) {
     if (disposed || mtmdCtx == nullptr) {
         Napi::Error::New(info.Env(), "Mtmd context is disposed").ThrowAsJavaScriptException();
@@ -645,7 +637,6 @@ void AddonMtmd::init(Napi::Object exports) {
                 InstanceMethod("init", &AddonMtmd::Init),
                 InstanceMethod("tokenize", &AddonMtmd::Tokenize),
                 InstanceMethod("evalChunks", &AddonMtmd::EvalChunks),
-                InstanceAccessor("usages", &AddonMtmd::GetUsages, &AddonMtmd::SetUsages),
                 InstanceAccessor("filePath", &AddonMtmd::GetFilePath, nullptr),
                 InstanceAccessor("disposed", &AddonMtmd::GetDisposed, nullptr),
                 InstanceAccessor("supportsVision", &AddonMtmd::GetSupportsVision, nullptr),

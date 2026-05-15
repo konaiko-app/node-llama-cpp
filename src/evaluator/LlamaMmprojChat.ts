@@ -24,8 +24,19 @@ export function normalizeHistory(history: MmprojChatHistoryItem[]): {
 } {
     const images: MtmdBitmapInput[] = [];
     const chatHistory: ChatHistoryItem[] = history.map((item) => {
-        if (item.type !== "user" || typeof item.text === "string")
+        if (item.type !== "user")
             return item as ChatHistoryItem;
+
+        // Already-normalized string messages may contain leftover <__media__> markers
+        // from previous turns whose image data has already been consumed.
+        // Replace them with a neutral placeholder so they don't cause a
+        // bitmap-count mismatch in mtmd_tokenize.
+        if (typeof item.text === "string") {
+            if (item.text.includes(MEDIA_MARKER))
+                return {type: "user" as const, text: item.text.replaceAll(MEDIA_MARKER, "[image]")};
+
+            return item as ChatHistoryItem;
+        }
 
         let text = "";
         for (const part of item.text) {

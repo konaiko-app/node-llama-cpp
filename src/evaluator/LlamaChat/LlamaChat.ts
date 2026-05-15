@@ -4,7 +4,7 @@ import {internalCheckpoints, LlamaContextSequence} from "../LlamaContext/LlamaCo
 import {
     ChatHistoryItem, ChatModelFunctions, ChatModelResponse, ChatModelSegmentType, ChatUserMessage, isChatModelResponseFunctionCall,
     isChatModelResponseSegment, LLamaContextualRepeatPenalty, Token, Tokenizer, allSegmentTypes, ChatWrapperGeneratedContextState,
-    LLamaContextualDryRepeatPenalty
+    LLamaContextualDryRepeatPenalty, chatUserMessageTextToString
 } from "../../types.js";
 import {GbnfJsonSchemaToType} from "../../utils/gbnfJson/types.js";
 import {LlamaGrammar} from "../LlamaGrammar.js";
@@ -28,6 +28,7 @@ import {jsonDumps} from "../../chatWrappers/utils/jsonDumps.js";
 import {defaultMaxPreloadTokens} from "../LlamaChatSession/utils/LlamaChatSessionPromptCompletionEngine.js";
 import {LlamaLogLevel} from "../../bindings/types.js";
 import {MtmdBitmapInput} from "../../bindings/AddonTypes.js";
+import {MEDIA_MARKER, normalizeHistory} from "../LlamaMmprojChat.js";
 import {
     eraseFirstResponseAndKeepFirstSystemChatContextShiftStrategy
 } from "./utils/contextShiftStrategies/eraseFirstResponseAndKeepFirstSystemChatContextShiftStrategy.js";
@@ -403,14 +404,7 @@ export type LLamaChatGenerateResponseOptions<Functions extends ChatModelFunction
      *
      * Essentially free for local models; defaults to `false`.
      */
-    confidence?: boolean,
-
-    /**
-     * @internal
-     * Multimodal images to embed via evalChunks before token generation.
-     * Passed internally by LlamaChatSession when the prompt contains image content parts.
-     */
-    _images?: MtmdBitmapInput[]
+    confidence?: boolean
 } & ({
     grammar?: LlamaGrammar,
     functions?: never,
@@ -662,19 +656,14 @@ export class LlamaChat {
             customStopTriggers,
             abortOnNonText = false,
             confidence,
-            _images,
             lastEvaluationContextWindow: {
                 history: lastEvaluationContextWindowHistory,
                 minimumOverlapPercentageToPreventContextShift = 0.5
             } = {}
         } = options;
 
-        const lastUserText = findLastUserMessageInChatHistory(history)?.text ?? "";
-        const lastUserTextString = typeof lastUserText === "string"
-            ? lastUserText
-            : lastUserText.filter((p) => p.type === "text").map((p) => (p as {type: "text", text: string}).text).join("");
         this.sequence.tokenPredictor?.updateInputTokens?.(
-            this.model.tokenize(lastUserTextString)
+            this.model.tokenize(chatUserMessageTextToString(findLastUserMessageInChatHistory(history)?.text ?? ""))
         );
         const generateResponseState = new GenerateResponseState<Functions>(
             this,
@@ -707,7 +696,6 @@ export class LlamaChat {
                 maxParallelFunctionCalls,
                 contextShift,
                 customStopTriggers,
-                _images,
                 abortOnNonText,
                 confidence,
                 lastEvaluationContextWindow: {
@@ -1328,14 +1316,7 @@ function getLastUserTextFromChatHistory(chatHistory: readonly ChatHistoryItem[])
     if (chatHistory.length === 0 || chatHistory[chatHistory.length - 1]!.type !== "user")
         return "";
 
-    const text = (chatHistory[chatHistory.length - 1] as ChatUserMessage).text;
-    if (typeof text === "string")
-        return text;
-
-    return text
-        .filter((p): p is {type: "text", text: string} => p.type === "text")
-        .map((p) => p.text)
-        .join("");
+    return chatUserMessageTextToString((chatHistory[chatHistory.length - 1] as ChatUserMessage).text);
 }
 
 function setLastUserTextInChatHistory(chatHistory: readonly ChatHistoryItem[], userText: string) {
@@ -1767,7 +1748,7 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
     private readonly customStopTriggers: LLamaChatGenerateResponseOptions<Functions>["customStopTriggers"];
     public readonly abortOnNonText: boolean;
     private readonly confidence: boolean;
-    private readonly images: MtmdBitmapInput[] | undefined;
+    private images: MtmdBitmapInput[] | undefined;
     public imagePromptText: string | undefined;
     private readonly minimumOverlapPercentageToPreventContextShift: Exclude<Exclude<LLamaChatGenerateResponseOptions<Functions>["lastEvaluationContextWindow"], undefined>["minimumOverlapPercentageToPreventContextShift"], undefined>;
 
@@ -1892,7 +1873,6 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
             customStopTriggers,
             abortOnNonText,
             confidence,
-            _images,
             lastEvaluationContextWindow: {
                 history: lastEvaluationContextWindowHistory,
                 minimumOverlapPercentageToPreventContextShift = 0.5
@@ -1929,7 +1909,6 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
         this.customStopTriggers = customStopTriggers;
         this.abortOnNonText = abortOnNonText ?? false;
         this.confidence = confidence ?? false;
-        this.images = (_images != null && _images.length > 0) ? _images : undefined;
         this.minimumOverlapPercentageToPreventContextShift = minimumOverlapPercentageToPreventContextShift;
 
         this.functionsEnabled = (this.functions != null && Object.keys(this.functions).length > 0);
@@ -2419,10 +2398,14 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
                 this.resolvedHistory = this.resolvedHistory.map(removeRawFromHistoryItem);
             }
 
-            // When images are present, compute the prompt text for evalChunks
-            if (this.images != null && this.images.length > 0) {
+            // Extract images from the current context window for evalChunks.
+            // normalizeHistory replaces image content parts with <__media__> markers
+            // and collects the corresponding image data.
+            const {chatHistory: markerHistory, images: windowImages} = normalizeHistory(contextWindowHistory);
+            if (windowImages.length > 0) {
+                this.images = windowImages;
                 const contextState = this.chatWrapper.generateContextState({
-                    chatHistory: contextWindowHistory,
+                    chatHistory: markerHistory,
                     availableFunctions: this.functionsEnabled ? this.functions : undefined,
                     documentFunctionParams: this.documentFunctionParams
                 });
@@ -2430,6 +2413,9 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
                     .filter((v): v is string => !(v instanceof SpecialToken))
                     .map((v) => v.toString())
                     .join("");
+            } else {
+                this.images = undefined;
+                this.imagePromptText = undefined;
             }
         }
 
@@ -3229,51 +3215,64 @@ class GenerateResponseState<const Functions extends ChatModelFunctions | undefin
     }
 
     public async alignCurrentSequenceStateWithCurrentTokens() {
-        // When images are present, use evalChunks to load the full context with image embeddings
+        // When images are present, use evalChunks to load the full context with image embeddings.
+        // Images are preserved so they can be re-embedded after a context shift.
         if (this.images != null && this.images.length > 0 && this.imagePromptText != null) {
-            const mmproj = this.llamaChat.model.mmproj;
-            if (mmproj == null)
-                throw new Error(
-                    "No multimodal projector available. Load the model with `mmprojPath` to use image inputs."
+            // Verify the prompt still contains the right number of media markers.
+            // After a context shift the user message with markers may have been trimmed,
+            // making re-embedding impossible.
+            const markerCount = this.imagePromptText.split(MEDIA_MARKER).length - 1;
+            if (markerCount !== this.images.length) {
+                this.llamaChat.model._llama._log(
+                    LlamaLogLevel.warn,
+                    "Context shift removed image markers from the prompt. " +
+                    "Image embeddings cannot be re-evaluated — image understanding will be lost."
+                );
+                this.images = undefined;
+                this.imagePromptText = undefined;
+                // Fall through to the normal token path below
+            } else {
+                const mmproj = this.llamaChat.model.mmproj;
+                if (mmproj == null)
+                    throw new Error(
+                        "No multimodal projector available. Load the model with `mmprojPath` to use image inputs."
+                    );
+
+                const seq = this.llamaChat.sequence;
+
+                // Clear any existing sequence state
+                if (seq.nextTokenIndex > 0) {
+                    await seq.eraseContextTokenRanges([{
+                        start: 0,
+                        end: seq.nextTokenIndex
+                    }]);
+                }
+
+                // Use evalChunks to decode the full prompt (text + image embeddings) into the KV cache
+                const nPast = await mmproj.evalChunks(
+                    this.llamaChat.context,
+                    this.imagePromptText,
+                    this.images,
+                    0,
+                    seq._internalSequenceId
                 );
 
-            const seq = this.llamaChat.sequence;
+                // Sync the sequence state to match what evalChunks loaded.
+                // nPast includes KV slots for image embeddings which have no Token representation,
+                // so pad the context tokens array with a filler value to keep _contextTokens.length === nPast.
+                const tokenized = this.llamaChat.model.tokenize(this.imagePromptText);
+                const fillerToken = (tokenized[0] ?? 0) as Token;
+                while (tokenized.length < nPast)
+                    tokenized.push(fillerToken);
 
-            // Clear any existing sequence state
-            if (seq.nextTokenIndex > 0) {
-                await seq.eraseContextTokenRanges([{
-                    start: 0,
-                    end: seq.nextTokenIndex
-                }]);
+                seq._syncStateFromExternalEval(tokenized, nPast);
+
+                // Nothing left to evaluate — evalChunks already loaded everything
+                this.tokens = [];
+                this.imagePromptText = undefined;
+
+                return;
             }
-
-            // Use evalChunks to decode the full prompt (text + image embeddings) into the KV cache
-            const nPast = await mmproj.evalChunks(
-                this.llamaChat.context,
-                this.imagePromptText,
-                this.images,
-                0,
-                seq._internalSequenceId
-            );
-
-            // Sync the sequence state to match what evalChunks loaded.
-            // nPast includes KV slots for image embeddings which have no Token representation,
-            // so pad the context tokens array with a filler value to keep _contextTokens.length === nPast.
-            const tokenized = this.llamaChat.model.tokenize(this.imagePromptText);
-            const fillerToken = (tokenized[0] ?? 0) as Token;
-            while (tokenized.length < nPast)
-                tokenized.push(fillerToken);
-
-            seq._syncStateFromExternalEval(tokenized, nPast);
-
-            // Nothing left to evaluate — evalChunks already loaded everything
-            this.tokens = [];
-
-            // Clear images so subsequent calls (e.g. after context shift) use the normal path
-            (this as unknown as {images: MtmdBitmapInput[] | undefined}).images = undefined;
-            this.imagePromptText = undefined;
-
-            return;
         }
 
         if (this.tokens.length === 1 && this.llamaChat.sequence.nextTokenIndex !== 0) {

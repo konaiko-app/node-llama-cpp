@@ -11,7 +11,6 @@ import {
     LlamaChat, LLamaChatContextShiftOptions, LlamaChatResponse, LlamaChatResponseChunk, LlamaChatResponseFunctionCall,
     LlamaChatResponseFunctionCallParamsChunk
 } from "../LlamaChat/LlamaChat.js";
-import {normalizeHistory} from "../LlamaMmprojChat.js";
 import {EvaluationPriority} from "../LlamaContext/types.js";
 import {TokenBias} from "../TokenBias.js";
 import {LlamaText, LlamaTextJSON} from "../../utils/LlamaText.js";
@@ -723,19 +722,13 @@ export class LlamaChatSession {
             let lastEvaluation = this._canUseContextWindowForCompletion
                 ? this._lastEvaluation
                 : undefined;
-            // Build the raw chat history with the user prompt (including any image content parts)
-            const rawChatHistory = appendUserMessageToChatHistory(this._chatHistory, prompt);
-            const rawContextWindowChatHistory = lastEvaluation?.contextWindow == null
+            // Build the chat history with the user prompt (including any image content parts).
+            // Image content parts are preserved in the history so they can be
+            // re-embedded on context shift or when restoring a saved conversation.
+            let newChatHistory = appendUserMessageToChatHistory(this._chatHistory, prompt);
+            let newContextWindowChatHistory = lastEvaluation?.contextWindow == null
                 ? undefined
                 : appendUserMessageToChatHistory(lastEvaluation?.contextWindow, prompt);
-
-            // Normalize history: replace image content parts with text markers, collect images
-            const {chatHistory: normalizedChatHistory, images: extractedImages} = normalizeHistory(rawChatHistory);
-            let newChatHistory = normalizedChatHistory;
-            let newContextWindowChatHistory = rawContextWindowChatHistory != null
-                ? normalizeHistory(rawContextWindowChatHistory).chatHistory
-                : undefined;
-            const _images = extractedImages.length > 0 ? extractedImages : undefined;
 
             let previousFunctionCalls: number = 0;
 
@@ -818,7 +811,6 @@ export class LlamaChatSession {
                         maxTokens,
                         temperature,
                         trimWhitespaceSuffix,
-                        _images,
                         contextShift: {
                             ...this._contextShift,
                             lastEvaluationMetadata: lastEvaluation?.contextShiftMetadata

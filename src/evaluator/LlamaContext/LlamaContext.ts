@@ -1204,6 +1204,9 @@ export class LlamaContextSequence {
         this._contextTokens = contextTokens;
         this._nextTokenIndex = nPast;
         this._loadedTokenPredictions = [];
+
+        // nPast includes KV slots consumed by image embeddings (not just text tokens),
+        // so this counts all KV positions as "input tokens" for metering purposes.
         this._tokenMeter.useTokens(nPast, "input");
     }
 

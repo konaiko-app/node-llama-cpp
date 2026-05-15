@@ -21,7 +21,6 @@ class AddonMtmd : public Napi::ObjectWrap<AddonMtmd> {
         int nThreads;
         int imageMinTokens;
         int imageMaxTokens;
-        uint32_t usages = 0;
         uint64_t loadedMmprojSize = 0;
 
         std::mutex encodeMutex;
@@ -41,9 +40,6 @@ class AddonMtmd : public Napi::ObjectWrap<AddonMtmd> {
         Napi::Value GetDisposed(const Napi::CallbackInfo& info);
         Napi::Value GetSupportsVision(const Napi::CallbackInfo& info);
         Napi::Value GetSupportsAudio(const Napi::CallbackInfo& info);
-
-        Napi::Value GetUsages(const Napi::CallbackInfo& info);
-        void SetUsages(const Napi::CallbackInfo& info, const Napi::Value &value);
 
         Napi::Value Tokenize(const Napi::CallbackInfo& info);
         Napi::Value EvalChunks(const Napi::CallbackInfo& info);

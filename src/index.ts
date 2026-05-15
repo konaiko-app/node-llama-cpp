@@ -109,7 +109,8 @@ import {
     type LLamaContextualRepeatPenalty, type ChatWrapperSettings, type ChatWrapperSettingsSegment,
     type ChatWrapperGenerateContextStateOptions, type ChatWrapperGeneratedContextState, type ChatWrapperGeneratedPrefixTriggersContextState,
     type ChatWrapperGeneratedInitiallyEngagedFunctionsContextState, type ChatWrapperGenerateInitialHistoryOptions,
-    type LLamaContextualDryRepeatPenalty
+    type LLamaContextualDryRepeatPenalty,
+    type ChatImageInput, type ChatUserContentPart
 } from "./types.js";
 import {
     type GbnfJsonArraySchema, type GbnfJsonBasicSchema, type GbnfJsonConstSchema, type GbnfJsonEnumSchema, type GbnfJsonStringSchema,
@@ -297,6 +298,8 @@ export {
     type ChatSessionModelFunctions,
     type ChatSystemMessage,
     type ChatUserMessage,
+    type ChatImageInput,
+    type ChatUserContentPart,
     type Token,
     type Tokenizer,
     type Detokenizer,
