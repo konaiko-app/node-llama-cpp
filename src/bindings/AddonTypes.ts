@@ -203,6 +203,9 @@ export type AddonContext = {
     addToMtpBatch(sequenceId: number, pos: number, token: number, embd: Float32Array, logits: boolean): number,
     clearBatch(): void,
     getModelNEmbd(): number,
+    predictMtpTokens(sequenceId: number, startPos: number, startToken: number, initialH: Float32Array, maxTokens: number, sampler: AddonSampler): Promise<Int32Array>,
+    setEmbeddings(enabled: boolean): void,
+    predictGemma4Mtp(sequenceId: number, attnPos: number, lastToken: number, maxTokens: number): Promise<Int32Array>,
 };
 
 export type AddonContextSequenceCheckpoint = {

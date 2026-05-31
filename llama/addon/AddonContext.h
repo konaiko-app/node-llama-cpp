@@ -67,6 +67,8 @@ class AddonContext : public Napi::ObjectWrap<AddonContext> {
         Napi::Value ClearBatch(const Napi::CallbackInfo& info);
         Napi::Value GetModelNEmbd(const Napi::CallbackInfo& info);
         Napi::Value PredictMtpTokens(const Napi::CallbackInfo& info);
+        Napi::Value SetEmbeddings(const Napi::CallbackInfo& info);
+        Napi::Value PredictGemma4MtpTokens(const Napi::CallbackInfo& info);
 
         static void init(Napi::Object exports);
 };

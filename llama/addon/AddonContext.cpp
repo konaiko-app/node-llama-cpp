@@ -1111,6 +1111,16 @@ Napi::Value AddonContext::SetEmbeddingsPreNorm(const Napi::CallbackInfo& info) {
     return info.Env().Undefined();
 }
 
+Napi::Value AddonContext::SetEmbeddings(const Napi::CallbackInfo& info) {
+    if (disposed || !contextLoaded) {
+        Napi::Error::New(info.Env(), "Context is disposed or not loaded").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    bool enabled = info[0].As<Napi::Boolean>().Value();
+    llama_set_embeddings(ctx, enabled);
+    return info.Env().Undefined();
+}
+
 Napi::Value AddonContext::GetEmbeddingsPreNormIth(const Napi::CallbackInfo& info) {
     if (disposed || !contextLoaded) {
         Napi::Error::New(info.Env(), "Context is disposed or not loaded").ThrowAsJavaScriptException();
@@ -1295,6 +1305,99 @@ Napi::Value AddonContext::PredictMtpTokens(const Napi::CallbackInfo& info) {
     return worker->GetPromise();
 }
 
+// ── PredictGemma4MtpTokens: Gemma 4 cross-attention MTP draft in one native call ──
+// Args: (sequenceId: number, attnPos: number, lastToken: number, maxTokens: number)
+// The assistant must already be loaded into the target model via
+// AddonModel::loadMtpAssistant. h_prev (the target's post-norm hidden state for
+// the last decoded position) is read here and passed to llama_decode_mtp, which
+// runs the assistant cross-attending into THIS (target) context's KV cache.
+// Returns: Promise<Int32Array> of greedy draft token ids.
+class PredictGemma4MtpTokensWorker : public Napi::AsyncWorker {
+public:
+    AddonContext* ctx;
+    int32_t sequenceId;
+    llama_pos attnPos;
+    llama_token lastToken;
+    int32_t maxTokens;
+    std::vector<llama_token> results;
+    Napi::Promise::Deferred deferred;
+
+    PredictGemma4MtpTokensWorker(const Napi::CallbackInfo& info, AddonContext* ctx)
+        : Napi::AsyncWorker(info.Env(), "PredictGemma4MtpTokensWorker"),
+          ctx(ctx),
+          deferred(Napi::Promise::Deferred::New(info.Env())) {
+        ctx->Ref();
+        sequenceId = info[0].As<Napi::Number>().Int32Value();
+        attnPos    = (llama_pos) info[1].As<Napi::Number>().Int32Value();
+        lastToken  = (llama_token) info[2].As<Napi::Number>().Int32Value();
+        maxTokens  = info[3].As<Napi::Number>().Int32Value();
+    }
+    ~PredictGemma4MtpTokensWorker() {
+        ctx->Unref();
+    }
+
+    Napi::Promise GetPromise() { return deferred.Promise(); }
+
+protected:
+    void Execute() {
+        try {
+            if (maxTokens <= 0) {
+                return;
+            }
+            const int n_embd = llama_model_n_embd(ctx->model->model);
+
+            // h_prev: target's post-norm hidden state for the last decoded position.
+            // Requires regular embeddings output enabled on this context (setEmbeddings(true)).
+            float* h = llama_get_embeddings_ith(ctx->ctx, -1);
+            if (h == nullptr) {
+                return; // no embeddings available -> empty drafts (graceful)
+            }
+            std::vector<float> hPrev(h, h + n_embd);
+
+            std::vector<llama_token> drafts((size_t) maxTokens, -1);
+            int32_t rc = llama_decode_mtp(
+                ctx->ctx, (llama_seq_id) sequenceId, attnPos, lastToken,
+                hPrev.data(), maxTokens, drafts.data());
+            if (rc != 0) {
+                return; // decode failed -> empty drafts; do not abort generation
+            }
+
+            for (int32_t i = 0; i < maxTokens; i++) {
+                if (drafts[i] < 0) {
+                    break;
+                }
+                results.push_back(drafts[i]);
+            }
+        } catch (const std::exception& e) {
+            SetError(e.what());
+        } catch (...) {
+            SetError("Unknown error in PredictGemma4MtpTokens");
+        }
+    }
+
+    void OnOK() {
+        auto env = Env();
+        auto buf = Napi::ArrayBuffer::New(env, results.size() * sizeof(int32_t));
+        if (!results.empty()) {
+            std::memcpy(buf.Data(), results.data(), results.size() * sizeof(int32_t));
+        }
+        deferred.Resolve(Napi::Int32Array::New(env, results.size(), buf, 0));
+    }
+    void OnError(const Napi::Error& err) {
+        deferred.Reject(err.Value());
+    }
+};
+
+Napi::Value AddonContext::PredictGemma4MtpTokens(const Napi::CallbackInfo& info) {
+    if (disposed || !contextLoaded) {
+        Napi::Error::New(info.Env(), "Context is disposed or not loaded").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    auto* worker = new PredictGemma4MtpTokensWorker(info, this);
+    worker->Queue();
+    return worker->GetPromise();
+}
+
 void AddonContext::init(Napi::Object exports) {
     exports.Set(
         "AddonContext",
@@ -1326,6 +1429,8 @@ void AddonContext::init(Napi::Object exports) {
                 InstanceMethod("restoreCheckpoint", &AddonContext::RestoreCheckpoint),
                 InstanceMethod("setEmbeddingsPreNorm", &AddonContext::SetEmbeddingsPreNorm),
                 InstanceMethod("getEmbeddingsPreNormIth", &AddonContext::GetEmbeddingsPreNormIth),
+                InstanceMethod("setEmbeddings", &AddonContext::SetEmbeddings),
+                InstanceMethod("predictGemma4Mtp", &AddonContext::PredictGemma4MtpTokens),
                 InstanceMethod("initMtpBatch", &AddonContext::InitMtpBatch),
                 InstanceMethod("addToMtpBatch", &AddonContext::AddToMtpBatch),
                 InstanceMethod("clearBatch", &AddonContext::ClearBatch),
