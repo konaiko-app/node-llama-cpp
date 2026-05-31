@@ -55,6 +55,8 @@ class AddonContext : public Napi::ObjectWrap<AddonContext> {
         Napi::Value LoadSequenceStateFromFile(const Napi::CallbackInfo& info);
 
         Napi::Value PrintTimings(const Napi::CallbackInfo& info);
+        Napi::Value GetPerfData(const Napi::CallbackInfo& info);
+        Napi::Value ResetPerf(const Napi::CallbackInfo& info);
         Napi::Value EnsureDraftContextIsCompatibleForSpeculative(const Napi::CallbackInfo& info);
 
         Napi::Value SetLoras(const Napi::CallbackInfo& info);

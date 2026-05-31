@@ -93,11 +93,16 @@ export class GemmaMtpTokenPredictor extends TokenPredictor {
         const seqId = sequence._internalSequenceId;
 
         try {
+            // node-llama-cpp's speculative verify batch is [pendingToken, ...drafts], where
+            // pendingToken is the token already sampled after lastToken. The assistant, seeded
+            // with lastToken, drafts predictions starting AT pendingToken — so its first draft
+            // duplicates the token node-llama-cpp already has. Draft one extra and drop it so the
+            // remaining drafts align with the positions the verify decode actually checks.
             const drafted: Int32Array = await targetCtx.predictGemma4Mtp(
-                seqId, attnPos, lastToken, this._maxTokens
+                seqId, attnPos, lastToken, this._maxTokens + 1
             );
 
-            const predictions = Array.from(drafted) as Token[];
+            const predictions = Array.from(drafted).slice(1) as Token[];
             if (predictions.length > 0)
                 this._consecutiveEmpty = 0;
             else

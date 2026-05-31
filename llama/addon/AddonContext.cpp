@@ -956,6 +956,21 @@ Napi::Value AddonContext::PrintTimings(const Napi::CallbackInfo& info) {
     return info.Env().Undefined();
 }
 
+Napi::Value AddonContext::GetPerfData(const Napi::CallbackInfo& info) {
+    auto d = llama_perf_context(ctx);
+    auto obj = Napi::Object::New(info.Env());
+    obj.Set("tEvalMs", Napi::Number::New(info.Env(), d.t_eval_ms));
+    obj.Set("nEval", Napi::Number::New(info.Env(), d.n_eval));
+    obj.Set("tPEvalMs", Napi::Number::New(info.Env(), d.t_p_eval_ms));
+    obj.Set("nPEval", Napi::Number::New(info.Env(), d.n_p_eval));
+    return obj;
+}
+
+Napi::Value AddonContext::ResetPerf(const Napi::CallbackInfo& info) {
+    llama_perf_context_reset(ctx);
+    return info.Env().Undefined();
+}
+
 Napi::Value AddonContext::EnsureDraftContextIsCompatibleForSpeculative(const Napi::CallbackInfo& info) {
     constexpr auto vocabSizeMaxDifference = 128; // SPEC_VOCAB_MAX_SIZE_DIFFERENCE
     constexpr auto vocabCheckStartTokenId = 5; // SPEC_VOCAB_CHECK_START_TOKEN_ID
@@ -1422,6 +1437,8 @@ void AddonContext::init(Napi::Object exports) {
                 InstanceMethod("getThreads", &AddonContext::GetThreads),
                 InstanceMethod("setThreads", &AddonContext::SetThreads),
                 InstanceMethod("printTimings", &AddonContext::PrintTimings),
+                InstanceMethod("getPerfData", &AddonContext::GetPerfData),
+                InstanceMethod("resetPerf", &AddonContext::ResetPerf),
                 InstanceMethod("ensureDraftContextIsCompatibleForSpeculative", &AddonContext::EnsureDraftContextIsCompatibleForSpeculative),
                 InstanceMethod("saveSequenceStateToFile", &AddonContext::SaveSequenceStateToFile),
                 InstanceMethod("loadSequenceStateFromFile", &AddonContext::LoadSequenceStateFromFile),
