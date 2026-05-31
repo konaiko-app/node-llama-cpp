@@ -2386,6 +2386,10 @@ export class LlamaContextSequence {
                                     : validatedTokens.at(-1)?.[1];
                                 if (lastValidatedTokenOutput != null && lastValidatedTokenOutput === evalTokens[i]) {
                                     this._loadedTokenPredictions.push([evalTokens[i]!, [resultToken, probabilities, confidence]]);
+                                    // record [draft, model's next-token output] so the NEXT draft position can be
+                                    // validated against the model's prediction that followed this accepted draft.
+                                    // Without this, only the first draft per batch could ever be accepted.
+                                    validatedTokens.push([evalTokens[i]!, resultToken]);
                                     this._validatedTokenPredictions++;
                                     this._unusedTokenPredictions++;
                                 } else {
