@@ -842,6 +842,8 @@ function getTransformedLogLevel(level: LlamaLogLevel, message: string, gpu: Buil
         return LlamaLogLevel.info;
     else if (gpu === "metal" && level === LlamaLogLevel.warn && message.startsWith("ggml_metal_device_init: tensor API disabled for"))
         return LlamaLogLevel.info;
+    else if ((level === LlamaLogLevel.warn || level === LlamaLogLevel.error) && message.startsWith("get_embeddings_pre_norm_ith: invalid pre-norm embeddings id"))
+        return LlamaLogLevel.debug;
 
     return level;
 }

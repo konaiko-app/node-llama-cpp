@@ -24,7 +24,8 @@ export type AddonContextParams = {
     performanceTracking?: boolean,
     kvCacheKeyType?: number,
     kvCacheValueType?: number,
-    swaFullCache?: boolean
+    swaFullCache?: boolean,
+    ctxType?: "default" | "mtp"
 };
 
 export type BindingModule = {
@@ -120,6 +121,7 @@ export type AddonGgufMetadata = {
 export type AddonModel = {
     init(source?: AddonGgufMetadata): Promise<boolean>,
     loadLora(lora: AddonModelLora): Promise<void>,
+    loadMtpAssistant(mtpPath: string): Promise<void>,
     abortActiveModelLoad(): void,
     dispose(): Promise<void>,
     tokenize(text: string, specialTokens: boolean): Uint32Array,
@@ -193,7 +195,14 @@ export type AddonContext = {
     loadSequenceStateFromFile(filePath: string, sequenceId: number, maxContextSize: number): Promise<Uint32Array>,
     setLoras(loras: AddonModelLora[], scales: number[]): void,
 
-    restoreCheckpoint(checkpoint: AddonContextSequenceCheckpoint, maxPosIndex: number): Promise<boolean>
+    restoreCheckpoint(checkpoint: AddonContextSequenceCheckpoint, maxPosIndex: number): Promise<boolean>,
+
+    setEmbeddingsPreNorm(enabled: boolean, masked: boolean): void,
+    getEmbeddingsPreNormIth(index: number): Float32Array | null,
+    initMtpBatch(nTokens: number, nEmbd: number): void,
+    addToMtpBatch(sequenceId: number, pos: number, token: number, embd: Float32Array, logits: boolean): number,
+    clearBatch(): void,
+    getModelNEmbd(): number,
 };
 
 export type AddonContextSequenceCheckpoint = {

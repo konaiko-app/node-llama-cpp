@@ -84,6 +84,7 @@ import {appendUserMessageToChatHistory} from "./utils/appendUserMessageToChatHis
 import {TokenPredictor} from "./evaluator/LlamaContext/TokenPredictor.js";
 import {DraftSequenceTokenPredictor} from "./evaluator/LlamaContext/tokenPredictors/DraftSequenceTokenPredictor.js";
 import {InputLookupTokenPredictor} from "./evaluator/LlamaContext/tokenPredictors/InputLookupTokenPredictor.js";
+import {NextNTokenPredictor} from "./evaluator/LlamaContext/tokenPredictors/NextNTokenPredictor.js";
 import {getModuleVersion} from "./utils/getModuleVersion.js";
 import {readGgufFileInfo} from "./gguf/readGgufFileInfo.js";
 import {GgufInsights, type GgufInsightsResourceRequirements} from "./gguf/insights/GgufInsights.js";
@@ -271,6 +272,7 @@ export {
     TokenPredictor,
     DraftSequenceTokenPredictor,
     InputLookupTokenPredictor,
+    NextNTokenPredictor,
     appendUserMessageToChatHistory,
     getModuleVersion,
     type ChatHistoryItem,

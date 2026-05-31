@@ -15,6 +15,7 @@ class AddonContext : public Napi::ObjectWrap<AddonContext> {
         llama_batch batch;
         uint64_t batchMemorySize = 0;
         bool has_batch = false;
+        bool mtp_batch_token_owned = false;
         int32_t batch_n_tokens = 0;
         int n_cur = 0;
 
@@ -58,6 +59,14 @@ class AddonContext : public Napi::ObjectWrap<AddonContext> {
 
         Napi::Value SetLoras(const Napi::CallbackInfo& info);
         Napi::Value RestoreCheckpoint(const Napi::CallbackInfo& info);
+
+        Napi::Value SetEmbeddingsPreNorm(const Napi::CallbackInfo& info);
+        Napi::Value GetEmbeddingsPreNormIth(const Napi::CallbackInfo& info);
+        Napi::Value InitMtpBatch(const Napi::CallbackInfo& info);
+        Napi::Value AddToMtpBatch(const Napi::CallbackInfo& info);
+        Napi::Value ClearBatch(const Napi::CallbackInfo& info);
+        Napi::Value GetModelNEmbd(const Napi::CallbackInfo& info);
+        Napi::Value PredictMtpTokens(const Napi::CallbackInfo& info);
 
         static void init(Napi::Object exports);
 };

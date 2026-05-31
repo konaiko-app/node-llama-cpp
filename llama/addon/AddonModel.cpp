@@ -221,6 +221,51 @@ class AddonModelUnloadModelWorker : public Napi::AsyncWorker {
         }
 };
 
+class AddonModelLoadMtpAssistantWorker : public Napi::AsyncWorker {
+    public:
+        AddonModel* model;
+        std::string mtpPath;
+
+        AddonModelLoadMtpAssistantWorker(const Napi::Env& env, AddonModel* model, std::string mtpPath)
+            : Napi::AsyncWorker(env, "AddonModelLoadMtpAssistantWorker"),
+              model(model),
+              mtpPath(std::move(mtpPath)),
+              deferred(Napi::Promise::Deferred::New(env)) {
+            model->Ref();
+        }
+        ~AddonModelLoadMtpAssistantWorker() {
+            model->Unref();
+        }
+
+        Napi::Promise GetPromise() {
+            return deferred.Promise();
+        }
+
+    protected:
+        Napi::Promise::Deferred deferred;
+
+        void Execute() {
+            try {
+                llama_model_params params = llama_model_default_params();
+                params.n_gpu_layers = model->model_params.n_gpu_layers;
+                int rc = llama_model_load_mtp_from_file(model->model, mtpPath.c_str(), params);
+                if (rc != 0) {
+                    SetError("Failed to load MTP assistant (rc=" + std::to_string(rc) + ")");
+                }
+            } catch (const std::exception& e) {
+                SetError(e.what());
+            } catch(...) {
+                SetError("Unknown error loading MTP assistant");
+            }
+        }
+        void OnOK() {
+            deferred.Resolve(Env().Undefined());
+        }
+        void OnError(const Napi::Error& err) {
+            deferred.Reject(err.Value());
+        }
+};
+
 class AddonModelLoadLoraWorker : public Napi::AsyncWorker {
     public:
         AddonModelLora* modelLora;
@@ -474,6 +519,16 @@ Napi::Value AddonModel::Init(const Napi::CallbackInfo& info) {
 Napi::Value AddonModel::LoadLora(const Napi::CallbackInfo& info) {
     AddonModelLora* modelLora = Napi::ObjectWrap<AddonModelLora>::Unwrap(info[0].As<Napi::Object>());
     AddonModelLoadLoraWorker* worker = new AddonModelLoadLoraWorker(this->Env(), modelLora);
+    worker->Queue();
+    return worker->GetPromise();
+}
+Napi::Value AddonModel::LoadMtpAssistant(const Napi::CallbackInfo& info) {
+    if (disposed || !modelLoaded) {
+        Napi::Error::New(info.Env(), "Model is not loaded").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    std::string mtpPath = info[0].As<Napi::String>().Utf8Value();
+    AddonModelLoadMtpAssistantWorker* worker = new AddonModelLoadMtpAssistantWorker(this->Env(), this, std::move(mtpPath));
     worker->Queue();
     return worker->GetPromise();
 }
@@ -781,6 +836,7 @@ void AddonModel::init(Napi::Object exports) {
             {
                 InstanceMethod("init", &AddonModel::Init),
                 InstanceMethod("loadLora", &AddonModel::LoadLora),
+                InstanceMethod("loadMtpAssistant", &AddonModel::LoadMtpAssistant),
                 InstanceMethod("abortActiveModelLoad", &AddonModel::AbortActiveModelLoad),
                 InstanceMethod("tokenize", &AddonModel::Tokenize),
                 InstanceMethod("detokenize", &AddonModel::Detokenize),

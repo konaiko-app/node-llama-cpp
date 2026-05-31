@@ -6,6 +6,8 @@
 #include "llama-vocab.h"
 #include "llama.h"
 
+#include "llama-ext.h"
+
 #include "addonGlobals.h"
 #include "AddonModel.h"
 #include "AddonModelLora.h"
@@ -459,6 +461,13 @@ AddonContext::AddonContext(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Ad
         if (options.Has("swaFullCache")) {
             context_params.swa_full = options.Get("swaFullCache").As<Napi::Boolean>().Value();
         }
+
+        if (options.Has("ctxType")) {
+            auto ctxTypeStr = options.Get("ctxType").As<Napi::String>().Utf8Value();
+            if (ctxTypeStr == "mtp") {
+                context_params.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
+            }
+        }
     }
 }
 AddonContext::~AddonContext() {
@@ -490,6 +499,11 @@ void AddonContext::disposeBatch() {
         return;
     }
 
+    if (mtp_batch_token_owned && batch.token != nullptr) {
+        free(batch.token);
+        batch.token = nullptr;
+        mtp_batch_token_owned = false;
+    }
     llama_batch_free(batch);
     has_batch = false;
     batch_n_tokens = 0;
@@ -1086,6 +1100,201 @@ Napi::Value AddonContext::RestoreCheckpoint(const Napi::CallbackInfo& info) {
     return worker->GetPromise();
 }
 
+Napi::Value AddonContext::SetEmbeddingsPreNorm(const Napi::CallbackInfo& info) {
+    if (disposed || !contextLoaded) {
+        Napi::Error::New(info.Env(), "Context is disposed or not loaded").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    bool enabled = info[0].As<Napi::Boolean>().Value();
+    bool masked = info[1].As<Napi::Boolean>().Value();
+    llama_set_embeddings_pre_norm(ctx, enabled, masked);
+    return info.Env().Undefined();
+}
+
+Napi::Value AddonContext::GetEmbeddingsPreNormIth(const Napi::CallbackInfo& info) {
+    if (disposed || !contextLoaded) {
+        Napi::Error::New(info.Env(), "Context is disposed or not loaded").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    int32_t i = info[0].As<Napi::Number>().Int32Value();
+    const int n_embd = llama_model_n_embd(model->model);
+    float* embd = llama_get_embeddings_pre_norm_ith(ctx, i);
+    if (embd == nullptr) {
+        return info.Env().Null();
+    }
+    auto buf = Napi::ArrayBuffer::New(info.Env(), n_embd * sizeof(float));
+    std::memcpy(buf.Data(), embd, n_embd * sizeof(float));
+    return Napi::Float32Array::New(info.Env(), n_embd, buf, 0);
+}
+
+Napi::Value AddonContext::InitMtpBatch(const Napi::CallbackInfo& info) {
+    if (disposed) {
+        Napi::Error::New(info.Env(), "Context is disposed").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    disposeBatch();
+
+    int32_t n_tokens = info[0].As<Napi::Number>().Int32Value();
+    int32_t n_embd = info[1].As<Napi::Number>().Int32Value();
+
+    batch = llama_batch_init(n_tokens, n_embd, 1);
+    batch.token = (llama_token *) malloc(sizeof(llama_token) * n_tokens);
+    mtp_batch_token_owned = true;
+    has_batch = true;
+    batch_n_tokens = n_tokens;
+    return info.Env().Undefined();
+}
+
+Napi::Value AddonContext::AddToMtpBatch(const Napi::CallbackInfo& info) {
+    if (!has_batch) {
+        Napi::Error::New(info.Env(), "No batch initialized").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    int32_t sequenceId = info[0].As<Napi::Number>().Int32Value();
+    int32_t pos = info[1].As<Napi::Number>().Int32Value();
+    llama_token token = info[2].As<Napi::Number>().Int32Value();
+    Napi::Float32Array embd = info[3].As<Napi::Float32Array>();
+    bool logits = info[4].As<Napi::Boolean>().Value();
+
+    int n_embd = (int) embd.ElementLength();
+    int idx = batch.n_tokens;
+
+    batch.token[idx] = token;
+    std::memcpy(batch.embd + (size_t)idx * n_embd, embd.Data(), n_embd * sizeof(float));
+    batch.pos[idx] = pos;
+    batch.n_seq_id[idx] = 1;
+    batch.seq_id[idx][0] = sequenceId;
+    batch.logits[idx] = logits ? 1 : 0;
+    batch.n_tokens++;
+
+    return Napi::Number::New(info.Env(), idx);
+}
+
+Napi::Value AddonContext::ClearBatch(const Napi::CallbackInfo& info) {
+    if (!has_batch) {
+        Napi::Error::New(info.Env(), "No batch initialized").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    batch.n_tokens = 0;
+    return info.Env().Undefined();
+}
+
+Napi::Value AddonContext::GetModelNEmbd(const Napi::CallbackInfo& info) {
+    return Napi::Number::New(info.Env(), llama_model_n_embd(model->model));
+}
+
+// ── PredictMtpTokens: entire MTP draft loop in one native call ──────
+// Args: (sequenceId: number, startPos: number, startToken: number,
+//        initialH: Float32Array, maxTokens: number, sampler: AddonSampler)
+// Returns: Promise<Int32Array> of draft token ids.
+class PredictMtpTokensWorker : public Napi::AsyncWorker {
+public:
+    AddonContext* ctx;
+    AddonSampler* sampler;
+    int32_t sequenceId;
+    int32_t startPos;
+    llama_token startToken;
+    int32_t maxTokens;
+    int32_t n_embd;
+    std::vector<float> initialH;
+    std::vector<llama_token> results;
+    Napi::Promise::Deferred deferred;
+
+    PredictMtpTokensWorker(const Napi::CallbackInfo& info, AddonContext* ctx)
+        : Napi::AsyncWorker(info.Env(), "PredictMtpTokensWorker"),
+          ctx(ctx),
+          deferred(Napi::Promise::Deferred::New(info.Env())) {
+        ctx->Ref();
+
+        sequenceId = info[0].As<Napi::Number>().Int32Value();
+        startPos   = info[1].As<Napi::Number>().Int32Value();
+        startToken = info[2].As<Napi::Number>().Int32Value();
+        auto embdArr = info[3].As<Napi::Float32Array>();
+        maxTokens  = info[4].As<Napi::Number>().Int32Value();
+        sampler    = Napi::ObjectWrap<AddonSampler>::Unwrap(info[5].As<Napi::Object>());
+        sampler->Ref();
+        // Must rebuild sampler chain on the main thread — NAPI calls are
+        // not safe from the async worker thread.
+        sampler->rebuildChainIfNeeded();
+
+        n_embd = (int32_t) embdArr.ElementLength();
+        initialH.resize(n_embd);
+        std::memcpy(initialH.data(), embdArr.Data(), n_embd * sizeof(float));
+    }
+    ~PredictMtpTokensWorker() {
+        ctx->Unref();
+        sampler->Unref();
+    }
+
+    Napi::Promise GetPromise() { return deferred.Promise(); }
+
+protected:
+    void Execute() {
+        try {
+            auto & batch = ctx->batch;
+            std::vector<float> currentH = initialH;
+            llama_token currentToken = startToken;
+
+            llama_memory_seq_rm(llama_get_memory(ctx->ctx), sequenceId, 0, -1);
+            sampler->rebuildChainIfNeeded();
+
+            for (int32_t i = 0; i < maxTokens; i++) {
+                batch.n_tokens = 0;
+                batch.token[0] = currentToken;
+                std::memcpy(batch.embd, currentH.data(), n_embd * sizeof(float));
+                batch.pos[0] = startPos + i + 1;
+                batch.n_seq_id[0] = 1;
+                batch.seq_id[0][0] = sequenceId;
+                batch.logits[0] = 1;
+                batch.n_tokens = 1;
+
+                int r = llama_decode(ctx->ctx, batch);
+                if (r != 0) break;
+
+                llama_token_data_array cur_p;
+                sampler->sample(ctx->ctx, 0, cur_p, false);
+                llama_token draftToken = (cur_p.selected >= 0 && cur_p.selected < (int32_t)cur_p.size)
+                    ? cur_p.data[cur_p.selected].id : -1;
+                if (draftToken == -1) break;
+
+                results.push_back(draftToken);
+
+                float* nextH = llama_get_embeddings_pre_norm_ith(ctx->ctx, 0);
+                if (nextH == nullptr) break;
+
+                currentH.assign(nextH, nextH + n_embd);
+                currentToken = draftToken;
+            }
+        } catch (const std::exception& e) {
+            SetError(e.what());
+        } catch (...) {
+            SetError("Unknown error in PredictMtpTokens");
+        }
+    }
+
+    void OnOK() {
+        auto env = Env();
+        auto buf = Napi::ArrayBuffer::New(env, results.size() * sizeof(int32_t));
+        if (!results.empty()) {
+            std::memcpy(buf.Data(), results.data(), results.size() * sizeof(int32_t));
+        }
+        deferred.Resolve(Napi::Int32Array::New(env, results.size(), buf, 0));
+    }
+    void OnError(const Napi::Error& err) {
+        deferred.Reject(err.Value());
+    }
+};
+
+Napi::Value AddonContext::PredictMtpTokens(const Napi::CallbackInfo& info) {
+    if (disposed || !contextLoaded || !has_batch) {
+        Napi::Error::New(info.Env(), "Context is disposed, not loaded, or no MTP batch").ThrowAsJavaScriptException();
+        return info.Env().Undefined();
+    }
+    auto* worker = new PredictMtpTokensWorker(info, this);
+    worker->Queue();
+    return worker->GetPromise();
+}
+
 void AddonContext::init(Napi::Object exports) {
     exports.Set(
         "AddonContext",
@@ -1115,6 +1324,13 @@ void AddonContext::init(Napi::Object exports) {
                 InstanceMethod("loadSequenceStateFromFile", &AddonContext::LoadSequenceStateFromFile),
                 InstanceMethod("setLoras", &AddonContext::SetLoras),
                 InstanceMethod("restoreCheckpoint", &AddonContext::RestoreCheckpoint),
+                InstanceMethod("setEmbeddingsPreNorm", &AddonContext::SetEmbeddingsPreNorm),
+                InstanceMethod("getEmbeddingsPreNormIth", &AddonContext::GetEmbeddingsPreNormIth),
+                InstanceMethod("initMtpBatch", &AddonContext::InitMtpBatch),
+                InstanceMethod("addToMtpBatch", &AddonContext::AddToMtpBatch),
+                InstanceMethod("clearBatch", &AddonContext::ClearBatch),
+                InstanceMethod("getModelNEmbd", &AddonContext::GetModelNEmbd),
+                InstanceMethod("predictMtpTokens", &AddonContext::PredictMtpTokens),
                 InstanceMethod("dispose", &AddonContext::Dispose),
             }
         )

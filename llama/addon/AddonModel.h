@@ -40,6 +40,7 @@ class AddonModel : public Napi::ObjectWrap<AddonModel> {
 
         Napi::Value Init(const Napi::CallbackInfo& info);
         Napi::Value LoadLora(const Napi::CallbackInfo& info);
+        Napi::Value LoadMtpAssistant(const Napi::CallbackInfo& info);
         Napi::Value AbortActiveModelLoad(const Napi::CallbackInfo& info);
         Napi::Value Dispose(const Napi::CallbackInfo& info);
         Napi::Value Tokenize(const Napi::CallbackInfo& info);
