@@ -21,10 +21,12 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Download latest llama.cpp release
+      - name: Download pinned llama.cpp (MTP) source
         env:
           CI: true
-        run: node ./dist/cli/cli.js source download --release latest --skipBuild --noBundle --noUsageExample --updateBinariesReleaseMetadataAndSaveGitBundle
+        # Pin to the MTP fork's tag (config default) instead of `latest`, so binaries
+        # are built against konaiko-app/llama.cpp@b9444-mtp (has the MTP engine).
+        run: node ./dist/cli/cli.js source download --release b9444-mtp --skipBuild --noBundle --noUsageExample --updateBinariesReleaseMetadataAndSaveGitBundle
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
