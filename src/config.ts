@@ -40,7 +40,10 @@ export const localXpacksStoreDirectory = path.join(xpackDirectory, "store");
 export const localXpacksCacheDirectory = path.join(xpackDirectory, "cache");
 export const buildMetadataFileName = "_nlcBuildMetadata.json";
 export const xpmVersion = "^0.16.3";
-export const builtinLlamaCppGitHubRepo = "ggml-org/llama.cpp";
+// Fork builds against konaiko-app/llama.cpp (carries the Gemma 4 MTP engine that the
+// addon links against — llama_model_load_mtp_from_file / llama_decode_mtp). Upstream
+// ggml-org/llama.cpp lacks those symbols, so a build against it would fail to link.
+export const builtinLlamaCppGitHubRepo = "konaiko-app/llama.cpp";
 export const builtinLlamaCppRelease = await getBinariesGithubRelease();
 
 export const isCI = env.get("CI")
