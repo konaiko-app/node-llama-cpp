@@ -1082,6 +1082,14 @@ export class LlamaContextSequence {
     /** @internal */ private _unusedTokenPredictions: number = 0;
     /** @internal */ private _validatedTokenPredictions: number = 0;
     /** @internal */ private _refutedTokenPredictions: number = 0;
+    /**
+     * @internal
+     * Output-row index of the seed token's hidden state in the most recent verify
+     * decode's embeddings buffer = the number of drafts accepted that round. Used by
+     * Gemma MTP drafting to read `h_prev` from the accepted-boundary row instead of the
+     * last (possibly rejected) draft row. -1 = use the last output row (initial/prompt).
+     */
+    public _mtpSeedHiddenIndex: number = -1;
     /** @internal */ private _disposed = false;
 
     public readonly onDispose = new EventRelay<void>();
@@ -2361,6 +2369,7 @@ export class LlamaContextSequence {
                             }
                         );
 
+                        let _mtpAcceptedDrafts = 0;
                         for (let i = logitsStartIndex; i < evalTokens.length; i++) {
                             const item = decodeResult[i];
                             const [resultToken, probabilities, confidence] = item instanceof Array
@@ -2397,6 +2406,7 @@ export class LlamaContextSequence {
                                     validatedTokens.push([evalTokens[i]!, resultToken]);
                                     this._validatedTokenPredictions++;
                                     this._unusedTokenPredictions++;
+                                    _mtpAcceptedDrafts++;
                                 } else {
                                     const deleteSize = Math.min(evalTokens.length - i, this.context.contextSize);
                                     this._refutedTokenPredictions += deleteSize;
@@ -2410,6 +2420,12 @@ export class LlamaContextSequence {
                                 }
                             }
                         }
+
+                        // Seed h_prev for the next Gemma-MTP draft from the accepted-boundary
+                        // output row (= drafts accepted this round), mirroring llama.cpp's server
+                        // `pending_h = verify_h[n_accepted]`. Without this the predictor reads the
+                        // last (often rejected) draft's hidden state and acceptance collapses.
+                        this._mtpSeedHiddenIndex = _mtpAcceptedDrafts;
                     }
 
                     if (nextToken == null)

@@ -98,8 +98,13 @@ export class GemmaMtpTokenPredictor extends TokenPredictor {
             // with lastToken, drafts predictions starting AT pendingToken — so its first draft
             // duplicates the token node-llama-cpp already has. Draft one extra and drop it so the
             // remaining drafts align with the positions the verify decode actually checks.
+            // h_prev must come from the seed (last accepted) token's output row in the most
+            // recent verify decode — not the last (possibly rejected) draft row. The speculative
+            // loop records that row index per round; -1 falls back to the last output (prompt).
+            const hiddenIndex = sequence._mtpSeedHiddenIndex ?? -1;
+
             const drafted: Int32Array = await targetCtx.predictGemma4Mtp(
-                seqId, attnPos, lastToken, this._maxTokens + 1
+                seqId, attnPos, lastToken, this._maxTokens + 1, hiddenIndex
             );
 
             const predictions = Array.from(drafted).slice(1) as Token[];

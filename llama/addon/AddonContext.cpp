@@ -1334,6 +1334,7 @@ public:
     llama_pos attnPos;
     llama_token lastToken;
     int32_t maxTokens;
+    int32_t hiddenIndex;
     std::vector<llama_token> results;
     Napi::Promise::Deferred deferred;
 
@@ -1346,6 +1347,13 @@ public:
         attnPos    = (llama_pos) info[1].As<Napi::Number>().Int32Value();
         lastToken  = (llama_token) info[2].As<Napi::Number>().Int32Value();
         maxTokens  = info[3].As<Napi::Number>().Int32Value();
+        // Output index of the seed token's post-norm hidden state in the most
+        // recent decode's embeddings buffer. After a speculative verify batch
+        // [current, d1..dN], the seed is the last *accepted* token at row
+        // n_accepted — NOT the last batch row (-1). Defaults to -1 (last row).
+        hiddenIndex = (info.Length() > 4 && info[4].IsNumber())
+            ? info[4].As<Napi::Number>().Int32Value()
+            : -1;
     }
     ~PredictGemma4MtpTokensWorker() {
         ctx->Unref();
@@ -1361,9 +1369,9 @@ protected:
             }
             const int n_embd = llama_model_n_embd(ctx->model->model);
 
-            // h_prev: target's post-norm hidden state for the last decoded position.
+            // h_prev: target's post-norm hidden state for the seed (last accepted) token.
             // Requires regular embeddings output enabled on this context (setEmbeddings(true)).
-            float* h = llama_get_embeddings_ith(ctx->ctx, -1);
+            float* h = llama_get_embeddings_ith(ctx->ctx, hiddenIndex);
             if (h == nullptr) {
                 return; // no embeddings available -> empty drafts (graceful)
             }

@@ -205,7 +205,7 @@ export type AddonContext = {
     getModelNEmbd(): number,
     predictMtpTokens(sequenceId: number, startPos: number, startToken: number, initialH: Float32Array, maxTokens: number, sampler: AddonSampler): Promise<Int32Array>,
     setEmbeddings(enabled: boolean): void,
-    predictGemma4Mtp(sequenceId: number, attnPos: number, lastToken: number, maxTokens: number): Promise<Int32Array>,
+    predictGemma4Mtp(sequenceId: number, attnPos: number, lastToken: number, maxTokens: number, hiddenIndex?: number): Promise<Int32Array>,
     getPerfData(): {tEvalMs: number, nEval: number, tPEvalMs: number, nPEval: number},
     resetPerf(): void,
 };
