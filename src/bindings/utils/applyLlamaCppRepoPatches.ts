@@ -1,7 +1,6 @@
 import path from "path";
 import fs from "fs-extra";
 import {simpleGit} from "simple-git";
-import {GitHubClient} from "../../utils/GitHubClient.js";
 import {llamaCppDirectory, llamaCppPatchesDirectory} from "../../config.js";
 import {getConsoleLogPrefix} from "../../utils/getConsoleLogPrefix.js";
 
@@ -11,37 +10,11 @@ type RepoPatch = {
     canSkip(repoPath: string, lastCommitDate?: Date): Promise<boolean>
 };
 
-const patches: RepoPatch[] = [{
-    // https://github.com/ggml-org/llama.cpp/pull/22566
-    filename: "PR-22566.diff",
-    title: "fix: consistent memory breakdown for models loaded with `no_alloc`",
-    async canSkip(repoPath, lastCommitDate) {
-        if (await fs.pathExists(path.join(repoPath, "tests", "test-model-load-buffer.cpp")))
-            return true;
-
-        if (lastCommitDate == null)
-            return false;
-
-        try {
-            const githubClient = new GitHubClient();
-            const pullRequestStatus = await githubClient.getPullRequestStatus({
-                owner: "ggml-org",
-                repo: "llama.cpp",
-                id: "22566"
-            });
-    
-            if (pullRequestStatus.merged && pullRequestStatus.merged_at != null) {
-                const mergedAt = new Date(pullRequestStatus.merged_at);
-                if (+mergedAt >= +lastCommitDate)
-                    return true;
-            }
-        } catch (err) {
-            // do nothing
-        }
-
-        return false;
-    }
-}];
+// No upstream patches: konaiko-app/llama.cpp already carries everything the addon
+// needs (incl. the MTP engine). PR-22566 was dropped — it doesn't apply on top of the
+// MTP changes to llama-model-loader.cpp, and the no_alloc memory-breakdown fix it
+// added is non-critical.
+const patches: RepoPatch[] = [];
 
 export function hasLlamaCppRepoPatchesToApply() {
     return patches.length > 0;
