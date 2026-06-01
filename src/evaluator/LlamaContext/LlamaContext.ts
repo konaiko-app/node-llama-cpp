@@ -1179,6 +1179,11 @@ export class LlamaContextSequence {
         return this._tokenMeter;
     }
 
+    /** @internal */
+    public get _internalSequenceId(): number {
+        return this._sequenceId;
+    }
+
     /**
      * The token predictor used when creating this sequence.
      */
