@@ -76,7 +76,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/withcatai/node-llama-cpp.git"
+    "url": "git+https://github.com/konaiko-app/node-llama-cpp.git"
   },
   "keywords": [
     "llama",

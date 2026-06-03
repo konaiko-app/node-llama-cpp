@@ -1,0 +1,82 @@
+# Minimal, org-owned publish of @konaiko-app/node-llama-cpp to GitHub Packages.
+#
+# Deliberately independent of upstream's semantic-release pipeline (build.yml /
+# .releaserc.ts). Builds the ONE binary we ship today (Windows x64 + CUDA),
+# bundles it into the MAIN package's bins/ (the loader resolves <pkg>/bins first,
+# so no per-platform sub-packages are needed), and publishes with the workflow's
+# built-in GITHUB_TOKEN — no personal access token required.
+#
+# Trigger: Actions tab -> "Publish (Konaiko)" -> Run workflow, set the version.
+# GitHub Packages versions are immutable, so bump `version` each run.
+name: Publish (Konaiko)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.1). Must be greater than the last published version."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-win-cuda:
+    name: Build win-x64-cuda + publish main package
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # Configures ~/.npmrc for GitHub Packages auth via NODE_AUTH_TOKEN.
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@konaiko-app"
+
+      - name: Install CMake + Ninja
+        run: |
+          choco install cmake.install --version=4.2.1
+          choco install cmake --version=4.2.1
+          choco install ninja
+
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.30
+        with:
+          cuda: "13.1.0"
+          method: "network"
+          use-local-cache: false
+
+      - name: Install dependencies + build TypeScript
+        run: |
+          npm ci
+          npm run build
+
+      - name: Download pinned llama.cpp (MTP) source
+        env:
+          CI: true
+        # Same pinned fork release build.yml uses: konaiko-app/llama.cpp@b9444-mtp.
+        run: node ./dist/cli/cli.js source download --release b9444-mtp --skipBuild --noBundle --noUsageExample
+
+      - name: Compile addon (Windows x64, CUDA)
+        run: node ./dist/cli/cli.js source build --ciMode --noUsageExample --arch x64 --gpu cuda
+
+      - name: Stage built binary into the main package's bins/
+        run: node scripts/konaiko-stage-local-binary.mjs win-x64-cuda
+
+      - name: Set package version
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "Published @konaiko-app/node-llama-cpp@${{ inputs.version }} to GitHub Packages." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Next: grant konaiko-app/konaiko read access to the package, then \`npm install\` in the app and commit the lockfile." >> "$GITHUB_STEP_SUMMARY"
