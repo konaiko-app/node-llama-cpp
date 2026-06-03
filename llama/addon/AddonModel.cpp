@@ -258,8 +258,10 @@ class AddonModelLoadMtpAssistantWorker : public Napi::AsyncWorker {
                 SetError("Unknown error loading MTP assistant");
             }
         }
+        // Resolve `true` on success so consumers can feature-detect via `=== true`
+        // (failure rejects via OnError, so reaching OnOK means the assistant loaded).
         void OnOK() {
-            deferred.Resolve(Env().Undefined());
+            deferred.Resolve(Napi::Boolean::New(Env(), true));
         }
         void OnError(const Napi::Error& err) {
             deferred.Reject(err.Value());

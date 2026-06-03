@@ -130,7 +130,7 @@ export type AddonGgufMetadata = {
 export type AddonModel = {
     init(source?: AddonGgufMetadata): Promise<boolean>,
     loadLora(lora: AddonModelLora): Promise<void>,
-    loadMtpAssistant(mtpPath: string): Promise<void>,
+    loadMtpAssistant(mtpPath: string): Promise<boolean>,
     abortActiveModelLoad(): void,
     dispose(): Promise<void>,
     tokenize(text: string, specialTokens: boolean): Uint32Array,
