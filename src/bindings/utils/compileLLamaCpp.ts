@@ -597,49 +597,49 @@ function getPrebuiltBinariesPackageDirectoryForBuildOptions(buildOptions: {
     if (buildOptions.platform === "mac") {
         if (buildOptions.arch === "arm64" && buildOptions.gpu === "metal")
             // @ts-ignore
-            return getBinariesPathFromModules(() => import("@node-llama-cpp/mac-arm64-metal"));
+            return getBinariesPathFromModules(() => import("@konaiko-app/mac-arm64-metal"));
         else if (buildOptions.arch === "x64" && buildOptions.gpu === false)
             // @ts-ignore
-            return getBinariesPathFromModules(() => import("@node-llama-cpp/mac-x64"));
+            return getBinariesPathFromModules(() => import("@konaiko-app/mac-x64"));
     } else if (buildOptions.platform === "linux") {
         if (buildOptions.arch === "x64") {
             if (buildOptions.gpu === "cuda")
                 return getBinariesPathFromModulesWithExtModule(
                     // @ts-ignore
-                    () => import("@node-llama-cpp/linux-x64-cuda"),
+                    () => import("@konaiko-app/linux-x64-cuda"),
                     // @ts-ignore
-                    () => import("@node-llama-cpp/linux-x64-cuda-ext")
+                    () => import("@konaiko-app/linux-x64-cuda-ext")
                 );
             else if (buildOptions.gpu === "vulkan")
                 // @ts-ignore
-                return getBinariesPathFromModules(() => import("@node-llama-cpp/linux-x64-vulkan"));
+                return getBinariesPathFromModules(() => import("@konaiko-app/linux-x64-vulkan"));
             else if (buildOptions.gpu === false)
                 // @ts-ignore
-                return getBinariesPathFromModules(() => import("@node-llama-cpp/linux-x64"));
+                return getBinariesPathFromModules(() => import("@konaiko-app/linux-x64"));
         } else if (buildOptions.arch === "arm64")
             // @ts-ignore
-            return getBinariesPathFromModules(() => import("@node-llama-cpp/linux-arm64"));
+            return getBinariesPathFromModules(() => import("@konaiko-app/linux-arm64"));
         else if (buildOptions.arch === "arm")
             // @ts-ignore
-            return getBinariesPathFromModules(() => import("@node-llama-cpp/linux-armv7l"));
+            return getBinariesPathFromModules(() => import("@konaiko-app/linux-armv7l"));
     } else if (buildOptions.platform === "win") {
         if (buildOptions.arch === "x64") {
             if (buildOptions.gpu === "cuda")
                 return getBinariesPathFromModulesWithExtModule(
                     // @ts-ignore
-                    () => import("@node-llama-cpp/win-x64-cuda"),
+                    () => import("@konaiko-app/win-x64-cuda"),
                     // @ts-ignore
-                    () => import("@node-llama-cpp/win-x64-cuda-ext")
+                    () => import("@konaiko-app/win-x64-cuda-ext")
                 );
             else if (buildOptions.gpu === "vulkan")
                 // @ts-ignore
-                return getBinariesPathFromModules(() => import("@node-llama-cpp/win-x64-vulkan"));
+                return getBinariesPathFromModules(() => import("@konaiko-app/win-x64-vulkan"));
             else if (buildOptions.gpu === false)
                 // @ts-ignore
-                return getBinariesPathFromModules(() => import("@node-llama-cpp/win-x64"));
+                return getBinariesPathFromModules(() => import("@konaiko-app/win-x64"));
         } else if (buildOptions.arch === "arm64")
             // @ts-ignore
-            return getBinariesPathFromModules(() => import("@node-llama-cpp/win-arm64"));
+            return getBinariesPathFromModules(() => import("@konaiko-app/win-arm64"));
     }
     /* eslint-enable import/no-unresolved */
 
